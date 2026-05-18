@@ -1,0 +1,1761 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ANTIGRAVITY // Deriv Auto Trading Bot</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    
+    <style>
+        /* CSS variables for consistent premium coloring */
+        :root {
+            --bg-color: #0b0f19;
+            --panel-bg: rgba(17, 24, 39, 0.7);
+            --border-color: rgba(255, 255, 255, 0.08);
+            --primary-glow: rgba(59, 130, 246, 0.5);
+            
+            --color-text: #f3f4f6;
+            --color-text-muted: #9ca3af;
+            
+            --color-success: #10b981;
+            --color-success-bg: rgba(16, 185, 129, 0.15);
+            --color-success-glow: rgba(16, 185, 129, 0.4);
+            
+            --color-danger: #ef4444;
+            --color-danger-bg: rgba(239, 68, 68, 0.15);
+            --color-danger-glow: rgba(239, 68, 68, 0.4);
+            
+            --color-warning: #f59e0b;
+            --color-warning-bg: rgba(245, 158, 11, 0.15);
+            
+            --color-brand: #3b82f6;
+            --color-brand-hover: #2563eb;
+            --color-brand-glow: rgba(59, 130, 246, 0.3);
+            
+            --color-purple: #8b5cf6;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--color-text);
+            font-family: 'Outfit', sans-serif;
+            overflow-x: hidden;
+            min-height: 100vh;
+            position: relative;
+        }
+
+        /* Animated Glowing Backdrop Blobs */
+        .blob {
+            position: absolute;
+            width: 600px;
+            height: 600px;
+            border-radius: 50%;
+            filter: blur(160px);
+            z-index: -1;
+            opacity: 0.12;
+            pointer-events: none;
+            animation: drift 25s infinite alternate ease-in-out;
+        }
+        .blob-blue {
+            background: var(--color-brand);
+            top: -200px;
+            left: -150px;
+        }
+        .blob-purple {
+            background: var(--color-purple);
+            bottom: -200px;
+            right: -150px;
+            animation-delay: -10s;
+        }
+
+        @keyframes drift {
+            0% { transform: translate(0, 0) scale(1); }
+            100% { transform: translate(100px, 80px) scale(1.2); }
+        }
+
+        /* App Container Layout */
+        .app-container {
+            max-width: 1440px;
+            margin: 0 auto;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        /* Header Styling */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 24px;
+            background: var(--panel-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .logo-section {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo-section h1 {
+            font-size: 20px;
+            font-weight: 800;
+            letter-spacing: 2px;
+            background: linear-gradient(135deg, #fff 0%, var(--color-brand) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-transform: uppercase;
+        }
+
+        .logo-section span {
+            font-size: 11px;
+            font-weight: 600;
+            background: var(--color-brand-glow);
+            color: var(--color-brand);
+            padding: 2px 8px;
+            border-radius: 100px;
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .status-badge-container {
+            display: flex;
+            gap: 12px;
+        }
+
+        .badge {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            padding: 6px 12px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            background: rgba(255, 255, 255, 0.03);
+            transition: all 0.3s ease;
+        }
+
+        .badge-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--color-text-muted);
+        }
+
+        .badge-connected .badge-dot {
+            background: var(--color-success);
+            box-shadow: 0 0 8px var(--color-success-glow);
+        }
+
+        .badge-authorized .badge-dot {
+            background: var(--color-success);
+            box-shadow: 0 0 8px var(--color-success-glow);
+        }
+
+        .badge-unauthorized .badge-dot {
+            background: var(--color-warning);
+            box-shadow: 0 0 8px var(--color-warning);
+        }
+
+        .badge-disconnected .badge-dot {
+            background: var(--color-danger);
+            box-shadow: 0 0 8px var(--color-danger-glow);
+            animation: pulse-red 1.5s infinite;
+        }
+
+        @keyframes pulse-red {
+            0% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        /* Metric Widgets Grid */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 20px;
+        }
+
+        .glass-card {
+            background: var(--panel-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 24px;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+            transition: transform 0.3s ease, border-color 0.3s ease;
+        }
+
+        .glass-card:hover {
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .metric-card {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .metric-label {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--color-text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .metric-value {
+            font-size: 32px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+
+        .metric-subtext {
+            font-size: 12px;
+            color: var(--color-text-muted);
+        }
+
+        /* Color classes for profit and loss cards */
+        .color-win {
+            color: var(--color-success);
+        }
+        .color-loss {
+            color: var(--color-danger);
+        }
+        .bg-glow-success {
+            box-shadow: inset 0 0 20px rgba(16, 185, 129, 0.05), 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+        }
+        .bg-glow-danger {
+            box-shadow: inset 0 0 20px rgba(239, 68, 68, 0.05), 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+        }
+
+        /* Main Workspace Layout (Two Columns) */
+        .main-workspace {
+            display: grid;
+            grid-template-columns: 1.6fr 1fr;
+            gap: 24px;
+        }
+
+        @media (max-width: 1024px) {
+            .main-workspace {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .left-column, .right-column {
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        /* Active Trade Dashboard HUD */
+        .active-trade-hud {
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: linear-gradient(135deg, rgba(31, 41, 55, 0.5) 0%, rgba(17, 24, 39, 0.8) 100%);
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+        }
+
+        .active-trade-desc {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .active-trade-badge {
+            font-size: 12px;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 6px;
+            text-transform: uppercase;
+        }
+
+        .active-trade-badge.call {
+            background: var(--color-success-bg);
+            color: var(--color-success);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            box-shadow: 0 0 10px var(--color-success-glow);
+        }
+
+        .active-trade-badge.put {
+            background: var(--color-danger-bg);
+            color: var(--color-danger);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            box-shadow: 0 0 10px var(--color-danger-glow);
+        }
+
+        .active-trade-details {
+            font-size: 14px;
+            color: var(--color-text);
+        }
+
+        .active-trade-progress {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .progress-bar-container {
+            width: 100px;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 100px;
+            overflow: hidden;
+            border: 1px solid var(--border-color);
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            background: var(--color-brand);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        /* Canvas Chart Styling */
+        .chart-card {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .chart-title {
+            font-size: 16px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .chart-price-display {
+            font-size: 20px;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .canvas-container {
+            width: 100%;
+            height: 320px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            position: relative;
+            overflow: hidden;
+        }
+
+        canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        /* Control Panel Form */
+        .control-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .form-group-full {
+            grid-column: span 2;
+        }
+
+        label {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--color-text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        input, select {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 10px 14px;
+            color: var(--color-text);
+            font-family: 'Outfit', sans-serif;
+            font-size: 14px;
+            transition: border-color 0.3s ease, background-color 0.3s ease;
+            width: 100%;
+        }
+
+        select option {
+            background: #1b2230; /* Dark premium glass-matching slate */
+            color: #f1f5f9; /* Highly visible text color */
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            border-color: rgba(59, 130, 246, 0.5);
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        /* Power Switch Button */
+        .power-btn {
+            font-family: 'Outfit', sans-serif;
+            font-size: 16px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            padding: 16px;
+            border-radius: 12px;
+            border: none;
+            cursor: pointer;
+            text-transform: uppercase;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+            width: 100%;
+        }
+
+        .power-btn-start {
+            background: var(--color-success);
+            color: #fff;
+            box-shadow: 0 4px 20px var(--color-success-glow);
+        }
+
+        .power-btn-start:hover {
+            background: #059669;
+            box-shadow: 0 6px 24px rgba(16, 185, 129, 0.6);
+            transform: translateY(-2px);
+        }
+
+        .power-btn-stop {
+            background: var(--color-danger);
+            color: #fff;
+            box-shadow: 0 4px 20px var(--color-danger-glow);
+        }
+
+        .power-btn-stop:hover {
+            background: #dc2626;
+            box-shadow: 0 6px 24px rgba(239, 68, 68, 0.6);
+            transform: translateY(-2px);
+        }
+
+        .btn-secondary {
+            font-family: 'Outfit', sans-serif;
+            font-size: 14px;
+            font-weight: 600;
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--color-text);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            width: 100%;
+            margin-top: 8px;
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        /* Log Panel Console */
+        .console-card {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            height: 380px;
+        }
+
+        .console-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .console-feed {
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            color: #34d399; /* Green retro look */
+            overflow-y: auto;
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.8);
+            scroll-behavior: smooth;
+        }
+
+        .console-line {
+            line-height: 1.4;
+            word-break: break-all;
+        }
+
+        /* History Table Styling */
+        .history-card {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .table-container {
+            overflow-x: auto;
+            width: 100%;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+            font-size: 14px;
+        }
+
+        th, td {
+            padding: 14px 18px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th {
+            background: rgba(255, 255, 255, 0.02);
+            font-weight: 600;
+            color: var(--color-text-muted);
+            text-transform: uppercase;
+            font-size: 11px;
+            letter-spacing: 0.5px;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        .row-payout {
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 500;
+        }
+
+        .badge-outcome {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 3px 8px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            display: inline-block;
+        }
+
+        .badge-outcome.won {
+            background: var(--color-success-bg);
+            color: var(--color-success);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+
+        .badge-outcome.lost {
+            background: var(--color-danger-bg);
+            color: var(--color-danger);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+
+        .empty-history-text {
+            text-align: center;
+            color: var(--color-text-muted);
+            padding: 30px;
+            font-style: italic;
+        }
+
+        /* Custom Scrollbar for sleek panels */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.25);
+        }
+
+        /* Toggle Switch & Slider Styles */
+        .switch input:checked + .slider {
+            background-color: var(--color-danger, #f43f5e) !important;
+            box-shadow: 0 0 12px rgba(244, 63, 94, 0.45);
+        }
+        .switch input:checked + .slider:before {
+            transform: translateX(20px);
+            background-color: #ffffff !important;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 16px;
+            width: 16px;
+            left: 4px;
+            bottom: 4px;
+            background-color: rgba(255, 255, 255, 0.6);
+            transition: .3s;
+            border-radius: 50%;
+        }
+    </style>
+</head>
+<body>
+    <!-- Background glow objects -->
+    <div class="blob blob-blue"></div>
+    <div class="blob blob-purple"></div>
+
+    <div class="app-container">
+        
+        <!-- Header -->
+        <header>
+            <div class="logo-section">
+                <h1>Antigravity</h1>
+                <span>Deriv Bot</span>
+            </div>
+            
+            <div class="status-badge-container">
+                <div id="status-server" class="badge badge-disconnected">
+                    <div class="badge-dot"></div>
+                    Server Status: Disconnected
+                </div>
+                <div id="status-auth" class="badge badge-unauthorized">
+                    <div class="badge-dot"></div>
+                    API Key: Unauthorized
+                </div>
+                <div id="status-account-mode" class="badge" style="display: none; align-items: center; gap: 6px;">
+                    <div class="badge-dot"></div>
+                    <span>Demo Account</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Metric Cards -->
+        <div class="metrics-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+            <!-- Account Balance Card -->
+            <div class="glass-card metric-card">
+                <span class="metric-label">Account Balance</span>
+                <span id="stat-balance" class="metric-value">USD --.--</span>
+                <span id="stat-email" class="metric-subtext">Awaiting session...</span>
+            </div>
+
+            <!-- Net Profit / Loss Card -->
+            <div id="card-profit" class="glass-card metric-card">
+                <span class="metric-label">Total Net Profit</span>
+                <span id="stat-profit" class="metric-value">$--.--</span>
+                <span class="metric-subtext">Demo / Real aggregated</span>
+            </div>
+
+            <!-- Win Rate Card -->
+            <div class="glass-card metric-card">
+                <span class="metric-label">Win Rate</span>
+                <span id="stat-winrate" class="metric-value">--.--%</span>
+                <span class="metric-subtext">Total trade efficiency</span>
+            </div>
+
+            <!-- Win / Loss Counter Card -->
+            <div class="glass-card metric-card">
+                <span class="metric-label">Trades (W / L)</span>
+                <span id="stat-trades" class="metric-value">-- W / -- L</span>
+                <span id="stat-stake" class="metric-subtext">Current Stake: $--.--</span>
+            </div>
+
+            <!-- Peak Balance Card -->
+            <div class="glass-card metric-card">
+                <span class="metric-label">Peak Balance</span>
+                <span id="stat-peak" class="metric-value">$--.--</span>
+                <span class="metric-subtext">Session high water mark</span>
+            </div>
+
+            <!-- Max Drawdown Card -->
+            <div id="card-drawdown" class="glass-card metric-card">
+                <span class="metric-label">Max Drawdown</span>
+                <span id="stat-drawdown" class="metric-value">0.00%</span>
+                <span id="stat-drawdown-cash" class="metric-subtext">Peak-to-trough: $0.00</span>
+            </div>
+        </div>
+
+        <!-- Main Workspace -->
+        <div class="main-workspace">
+            
+            <!-- Left Column: Ticks Chart & Trade History -->
+            <div class="left-column">
+                
+                <!-- Active Trade HUD -->
+                <div id="active-trade-container" class="active-trade-hud" style="display: none;">
+                    <div class="active-trade-desc">
+                        <span id="hud-direction" class="active-trade-badge call">CALL</span>
+                        <div class="active-trade-details">
+                            Active Trade ID: <strong id="hud-contract-id">--</strong> | Symbol: <strong id="hud-symbol">--</strong> | Stake: <strong id="hud-stake">$0.00</strong>
+                        </div>
+                    </div>
+                    <div class="active-trade-progress">
+                        <span id="hud-profit" class="color-win" style="font-family: 'JetBrains Mono'; font-weight: 700;">+$0.00</span>
+                        <div class="progress-bar-container">
+                            <div id="hud-progress-fill" class="progress-bar-fill"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Live Ticks Chart Card -->
+                <div class="glass-card chart-card">
+                    <div class="chart-header">
+                        <div class="chart-title">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="color-win"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>
+                            Market Visualization
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <select id="chart-mode" onchange="drawChart()" style="width: auto; padding: 4px 10px; font-size: 12px; height: auto; background: rgba(255,255,255,0.05); border-radius: 6px; margin: 0; border: 1px solid var(--border-color); cursor: pointer; color: var(--color-text);">
+                                <option value="candles">1-Minute Candlesticks</option>
+                                <option value="line">Line (Closed Prices)</option>
+                            </select>
+                            <div id="chart-price" class="chart-price-display">--.----</div>
+                        </div>
+                    </div>
+                    <div class="canvas-container">
+                        <canvas id="tick-chart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Advanced Indicator Analytics HUD -->
+                <div id="indicator-hud-card" class="glass-card" style="display: flex; flex-direction: column; gap: 12px; padding: 18px 24px; margin-bottom: 24px;">
+                    <div class="chart-title">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--color-warning);"><polygon points="12 2 2 22 22 22 12 2"></polygon><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                        Advanced Technical Indicator Analytics
+                    </div>
+                    <div id="indicators-list" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-top: 8px;">
+                        <div style="text-align: center; color: var(--color-text-muted); grid-column: span 3; font-style: italic; padding: 8px 0; font-size: 13px;">Awaiting strategy telemetry ticks...</div>
+                    </div>
+                </div>
+
+                <!-- Completed Trade History -->
+                <div class="glass-card history-card">
+                    <div class="chart-title">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--color-brand);"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                        Trade Execution Registry
+                    </div>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Symbol</th>
+                                    <th>Contract</th>
+                                    <th>Entry / Exit Spot</th>
+                                    <th>Stake</th>
+                                    <th>Payout</th>
+                                    <th>Net Profit</th>
+                                    <th>Result</th>
+                                </tr>
+                            </thead>
+                            <tbody id="history-table-body">
+                                <tr>
+                                    <td colspan="8" class="empty-history-text">Awaiting first trade execution...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Right Column: Control Panel & Engine Logs -->
+            <div class="right-column">
+                
+                <!-- Bot Power Switch & Control Form -->
+                <div class="glass-card">
+                    <div class="chart-title" style="margin-bottom: 20px;">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--color-brand);"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg>
+                        Trading Engine Controls
+                    </div>
+
+                    <div style="margin-bottom: 20px;">
+                        <button id="btn-toggle-bot" class="power-btn power-btn-start" disabled>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                            Start AutoTrade
+                        </button>
+                    </div>
+
+                    <form id="settings-form" onsubmit="event.preventDefault(); saveSettings();">
+                        <div class="control-grid">
+                            
+                            <!-- Symbol Selector -->
+                            <div class="form-group">
+                                <label for="symbol">Symbol / Asset</label>
+                                <select id="symbol">
+                                    <option value="R_100">Volatility 100 Index</option>
+                                    <option value="R_75">Volatility 75 Index</option>
+                                    <option value="R_50">Volatility 50 Index</option>
+                                    <option value="R_25">Volatility 25 Index</option>
+                                    <option value="R_10">Volatility 10 Index</option>
+                                </select>
+                            </div>
+
+                            <!-- Strategy Selector -->
+                            <div class="form-group">
+                                <label for="strategy">Trading Strategy</label>
+                                <select id="strategy" onchange="toggleStrategyParams(this.value)">
+                                    <option value="tick_trend">Candle Trend Momentum</option>
+                                    <option value="rsi_crossover">RSI Extreme Crossover</option>
+                                    <option value="bb_rsi_reversal">BB & RSI Reversal</option>
+                                    <option value="ema_macd_confluence">EMA & MACD Confluence</option>
+                                    <option value="tick_velocity">Candle Velocity Momentum</option>
+                                </select>
+                            </div>
+
+                            <!-- Risk Management Selector -->
+                            <div class="form-group form-group-full" style="margin-bottom: 8px;">
+                                <label for="money_management">Risk Management Engine</label>
+                                <select id="money_management" onchange="toggleMMParams(this.value)">
+                                    <option value="flat">Flat Stake (Conservative)</option>
+                                    <option value="martingale">Classic Martingale (Aggressive)</option>
+                                    <option value="fibonacci">Fibonacci Progression (Smarter)</option>
+                                    <option value="dalembert">D'Alembert Linear Scaling</option>
+                                    <option value="oscars_grind">Oscar's Grind Cycle</option>
+                                </select>
+                            </div>
+
+                            <!-- Base Stake Input -->
+                            <div class="form-group">
+                                <label for="stake">Base Stake ($)</label>
+                                <input type="number" id="stake" min="0.35" step="0.1" value="1.0">
+                            </div>
+
+                            <!-- Duration Input (Locked to 1-Minute) -->
+                            <div class="form-group">
+                                <label>Contract Duration</label>
+                                <input type="text" value="1 Minute (Locked)" disabled style="cursor: not-allowed; background: rgba(255,255,255,0.02); opacity: 0.7;">
+                                <input type="hidden" id="duration" value="1">
+                            </div>
+
+                            <!-- Target Profit Input -->
+                            <div class="form-group">
+                                <label for="target_profit">Target Profit ($)</label>
+                                <input type="number" id="target_profit" min="1" step="0.5" value="10.0">
+                            </div>
+
+                            <!-- Stop Loss Input -->
+                            <div class="form-group">
+                                <label for="stop_loss">Stop Loss Limit ($)</label>
+                                <input type="number" id="stop_loss" min="1" step="0.5" value="10.0">
+                            </div>
+
+                            <!-- ============================================== -->
+                            <!-- DYNAMIC RISK ENGINE INPUTS                     -->
+                            <!-- ============================================== -->
+                            
+                            <!-- Martingale multiplier -->
+                            <div id="group-martingale-mult" class="form-group mm-param">
+                                <label for="martingale_multiplier">Martingale Scale</label>
+                                <input type="number" id="martingale_multiplier" min="1.0" max="3.0" step="0.1" value="2.0">
+                            </div>
+
+                            <!-- Martingale max steps -->
+                            <div id="group-martingale-steps" class="form-group mm-param">
+                                <label for="martingale_max_steps">Max Loss Steps</label>
+                                <input type="number" id="martingale_max_steps" min="1" max="10" step="1" value="5">
+                            </div>
+
+                            <!-- Fibonacci max steps -->
+                            <div id="group-fibonacci-steps" class="form-group mm-param" style="display: none;">
+                                <label for="fibonacci_max_steps">Fib Max Steps</label>
+                                <input type="number" id="fibonacci_max_steps" min="2" max="12" step="1" value="8">
+                            </div>
+
+                            <!-- D'Alembert increment -->
+                            <div id="group-dalembert-inc" class="form-group mm-param" style="display: none;">
+                                <label for="dalembert_increment">D'Alembert Unit ($)</label>
+                                <input type="number" id="dalembert_increment" min="0.1" step="0.1" value="1.0">
+                            </div>
+
+                            <!-- Oscar's Grind target -->
+                            <div id="group-oscars-target" class="form-group mm-param" style="display: none;">
+                                <label for="oscars_grind_target">Grind Target Profit ($)</label>
+                                <input type="number" id="oscars_grind_target" min="0.1" step="0.1" value="1.0">
+                            </div>
+
+                            <!-- ============================================== -->
+                            <!-- DYNAMIC STRATEGY-SPECIFIC PARAMETERS           -->
+                            <!-- ============================================== -->
+                            <div class="form-group-full" style="border-top: 1px solid var(--border-color); margin-top: 12px; padding-top: 12px; display: flex; align-items: center;">
+                                <span style="font-weight: 700; color: var(--color-brand); font-size: 11px; letter-spacing: 1px; text-transform: uppercase;">Strategy Fine-Tuning</span>
+                            </div>
+
+                            <!-- Candle Trend settings -->
+                            <div id="group-tick-trend-consecutive" class="form-group strat-param">
+                                <label for="tick_trend_consecutive">Consecutive Candles</label>
+                                <input type="number" id="tick_trend_consecutive" min="2" max="10" step="1" value="3">
+                            </div>
+
+                            <!-- RSI settings -->
+                            <div id="group-rsi-period" class="form-group strat-param" style="display: none;">
+                                <label for="rsi_period">RSI Period</label>
+                                <input type="number" id="rsi_period" min="2" max="50" step="1" value="14">
+                            </div>
+                            <div id="group-rsi-lower" class="form-group strat-param" style="display: none;">
+                                <label for="rsi_lower_bound">RSI Oversold (Lower)</label>
+                                <input type="number" id="rsi_lower_bound" min="5" max="45" step="1" value="30">
+                            </div>
+                            <div id="group-rsi-upper" class="form-group strat-param" style="display: none;">
+                                <label for="rsi_upper_bound">RSI Overbought (Upper)</label>
+                                <input type="number" id="rsi_upper_bound" min="55" max="95" step="1" value="70">
+                            </div>
+
+                            <!-- Bollinger Bands settings -->
+                            <div id="group-bb-period" class="form-group strat-param" style="display: none;">
+                                <label for="bb_period">Bollinger Period</label>
+                                <input type="number" id="bb_period" min="5" max="50" step="1" value="20">
+                            </div>
+                            <div id="group-bb-std" class="form-group strat-param" style="display: none;">
+                                <label for="bb_std_dev">BB Deviation (SD)</label>
+                                <input type="number" id="bb_std_dev" min="0.5" max="4.0" step="0.1" value="2.0">
+                            </div>
+
+                            <!-- EMA Crossovers settings -->
+                            <div id="group-ema-fast" class="form-group strat-param" style="display: none;">
+                                <label for="ema_fast">Fast EMA Period</label>
+                                <input type="number" id="ema_fast" min="2" max="30" step="1" value="9">
+                            </div>
+                            <div id="group-ema-slow" class="form-group strat-param" style="display: none;">
+                                <label for="ema_slow">Slow EMA Period</label>
+                                <input type="number" id="ema_slow" min="10" max="100" step="1" value="21">
+                            </div>
+
+                            <!-- MACD parameters -->
+                            <div id="group-macd-fast" class="form-group strat-param" style="display: none;">
+                                <label for="macd_fast">MACD Fast Period</label>
+                                <input type="number" id="macd_fast" min="5" max="40" step="1" value="12">
+                            </div>
+                            <div id="group-macd-slow" class="form-group strat-param" style="display: none;">
+                                <label for="macd_slow">MACD Slow Period</label>
+                                <input type="number" id="macd_slow" min="15" max="80" step="1" value="26">
+                            </div>
+                            <div id="group-macd-signal" class="form-group strat-param" style="display: none;">
+                                <label for="macd_signal">MACD Signal Period</label>
+                                <input type="number" id="macd_signal" min="2" max="25" step="1" value="9">
+                            </div>
+
+                            <!-- Tick Velocity settings -->
+                            <div id="group-velocity-period" class="form-group strat-param" style="display: none;">
+                                <label for="velocity_period">Velocity Period</label>
+                                <input type="number" id="velocity_period" min="3" max="30" step="1" value="10">
+                            </div>
+                            <div id="group-velocity-sd" class="form-group strat-param" style="display: none;">
+                                <label for="velocity_threshold_sd">Threshold Deviation</label>
+                                <input type="number" id="velocity_threshold_sd" min="0.5" max="3.0" step="0.1" value="1.5">
+                            </div>
+
+                            <!-- Account Mode Toggle Checkbox -->
+                            <div class="form-group-full" style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 10px; margin: 10px 0;">
+                                <div style="display: flex; flex-direction: column; gap: 4px;">
+                                    <label for="account-mode-chk" style="margin: 0; font-weight: 600; font-size: 13px; color: var(--color-text); cursor: pointer;">Trade on Real Account</label>
+                                    <span style="font-size: 11px; color: var(--color-text-muted);">Enable live trading funds</span>
+                                </div>
+                                <label class="switch" style="position: relative; display: inline-block; width: 44px; height: 24px; margin: 0;">
+                                    <input type="checkbox" id="account-mode-chk" onchange="toggleAccountModeSetting(this.checked)" style="opacity: 0; width: 0; height: 0;">
+                                    <span class="slider" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(255, 255, 255, 0.1); transition: .3s; border-radius: 24px;"></span>
+                                </label>
+                            </div>
+
+                            <!-- Submit / Apply Settings -->
+                            <div class="form-group-full">
+                                <button type="submit" class="btn-secondary">Apply Trade Parameters</button>
+                            </div>
+
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Engine console logs -->
+                <div class="glass-card console-card">
+                    <div class="console-header">
+                        <div class="chart-title">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #34d399;"><polyline points="4 17 10 11 12 13 18 7"></polyline><polyline points="14 7 18 7 18 11"></polyline></svg>
+                            Live Logic Engine Terminal
+                        </div>
+                        <span id="log-count" style="font-size: 11px; color: var(--color-text-muted); font-family: monospace;">0 lines</span>
+                    </div>
+                    <div id="console-feed" class="console-feed">
+                        <div class="console-line">Initializing console environment...</div>
+                        <div class="console-line">Connecting to local server feed...</div>
+                    </div>
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+    <!-- Core Javascript logic -->
+    <script>
+        let socket = null;
+        let botState = {};
+        
+        // Canvas setup for price tracking
+        const canvas = document.getElementById("tick-chart");
+        const ctx = canvas.getContext("2d");
+        
+        // Candlestick aggregation state
+        let candles = [];
+        const candleTimeframe = 60; // 60-second candles (OHLC)
+        
+        // Resize canvas to match display size
+        function resizeCanvas() {
+            const container = canvas.parentElement;
+            canvas.width = container.clientWidth * window.devicePixelRatio;
+            canvas.height = container.clientHeight * window.devicePixelRatio;
+            ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+            drawChart();
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+        // Delay slightly for initial sizing
+        setTimeout(resizeCanvas, 100);
+
+        // Connect to FastAPI local websocket
+        function connectServer() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws/client`;
+            console.log("Connecting WebSocket dashboard to:", wsUrl);
+            
+            socket = new WebSocket(wsUrl);
+
+            socket.onopen = function() {
+                console.log("Local Dashboard connected successfully.");
+                document.getElementById("status-server").className = "badge badge-connected";
+                document.getElementById("status-server").innerHTML = `<div class="badge-dot"></div>Server Status: Connected`;
+                
+                // Sync the persisted account mode from localStorage to the server upon connection
+                const savedMode = localStorage.getItem("deriv_account_mode") || "Demo";
+                socket.send(jsonPacket("toggle_account_mode", { account_mode: savedMode }));
+            };
+
+            socket.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                botState = data;
+                updateUI(data);
+            };
+
+            socket.onclose = function() {
+                console.warn("Local Dashboard disconnected. Retrying connection...");
+                document.getElementById("status-server").className = "badge badge-disconnected";
+                document.getElementById("status-server").innerHTML = `<div class="badge-dot"></div>Server Status: Disconnected`;
+                document.getElementById("status-auth").className = "badge badge-unauthorized";
+                document.getElementById("status-auth").innerHTML = `<div class="badge-dot"></div>API Key: Unauthorized`;
+                
+                // Disable controls
+                document.getElementById("btn-toggle-bot").disabled = true;
+                
+                setTimeout(connectServer, 2000);
+            };
+
+            socket.onerror = function(err) {
+                console.error("Local WebSocket error:", err);
+            };
+        }
+
+        // Apply settings changes back to Server
+        function saveSettings() {
+            if (!socket || socket.readyState !== WebSocket.OPEN) return;
+            
+            const settings = {
+                symbol: document.getElementById("symbol").value,
+                strategy: document.getElementById("strategy").value,
+                money_management: document.getElementById("money_management").value,
+                stake: parseFloat(document.getElementById("stake").value),
+                duration: parseInt(document.getElementById("duration").value),
+                
+                martingale_multiplier: parseFloat(document.getElementById("martingale_multiplier").value),
+                martingale_max_steps: parseInt(document.getElementById("martingale_max_steps").value),
+                fibonacci_max_steps: parseInt(document.getElementById("fibonacci_max_steps").value),
+                dalembert_increment: parseFloat(document.getElementById("dalembert_increment").value),
+                oscars_grind_target: parseFloat(document.getElementById("oscars_grind_target").value),
+                
+                tick_trend_consecutive: parseInt(document.getElementById("tick_trend_consecutive").value),
+                rsi_period: parseInt(document.getElementById("rsi_period").value),
+                rsi_lower_bound: parseFloat(document.getElementById("rsi_lower_bound").value),
+                rsi_upper_bound: parseFloat(document.getElementById("rsi_upper_bound").value),
+                bb_period: parseInt(document.getElementById("bb_period").value),
+                bb_std_dev: parseFloat(document.getElementById("bb_std_dev").value),
+                ema_fast: parseInt(document.getElementById("ema_fast").value),
+                ema_slow: parseInt(document.getElementById("ema_slow").value),
+                macd_fast: parseInt(document.getElementById("macd_fast").value),
+                macd_slow: parseInt(document.getElementById("macd_slow").value),
+                macd_signal: parseInt(document.getElementById("macd_signal").value),
+                velocity_period: parseInt(document.getElementById("velocity_period").value),
+                velocity_threshold_sd: parseFloat(document.getElementById("velocity_threshold_sd").value),
+                
+                target_profit: parseFloat(document.getElementById("target_profit").value),
+                stop_loss: parseFloat(document.getElementById("stop_loss").value)
+            };
+
+            socket.send(jsonPacket("update_settings", settings));
+        }
+
+        // Toggles visibility of Strategy-specific Inputs
+        function toggleStrategyParams(strategy) {
+            // Hide all first
+            const params = document.querySelectorAll(".strat-param");
+            params.forEach(el => el.style.display = "none");
+            
+            if (strategy === "tick_trend") {
+                document.getElementById("group-tick-trend-consecutive").style.display = "block";
+            } else if (strategy === "rsi_crossover") {
+                document.getElementById("group-rsi-period").style.display = "block";
+                document.getElementById("group-rsi-lower").style.display = "block";
+                document.getElementById("group-rsi-upper").style.display = "block";
+            } else if (strategy === "bb_rsi_reversal") {
+                document.getElementById("group-bb-period").style.display = "block";
+                document.getElementById("group-bb-std").style.display = "block";
+                document.getElementById("group-rsi-period").style.display = "block";
+                document.getElementById("group-rsi-lower").style.display = "block";
+                document.getElementById("group-rsi-upper").style.display = "block";
+            } else if (strategy === "ema_macd_confluence") {
+                document.getElementById("group-ema-fast").style.display = "block";
+                document.getElementById("group-ema-slow").style.display = "block";
+                document.getElementById("group-macd-fast").style.display = "block";
+                document.getElementById("group-macd-slow").style.display = "block";
+                document.getElementById("group-macd-signal").style.display = "block";
+            } else if (strategy === "tick_velocity") {
+                document.getElementById("group-velocity-period").style.display = "block";
+                document.getElementById("group-velocity-sd").style.display = "block";
+            }
+        }
+
+        // Toggles visibility of Money Management Inputs
+        function toggleMMParams(mm) {
+            // Hide all first
+            const params = document.querySelectorAll(".mm-param");
+            params.forEach(el => el.style.display = "none");
+            
+            if (mm === "martingale") {
+                document.getElementById("group-martingale-mult").style.display = "block";
+                document.getElementById("group-martingale-steps").style.display = "block";
+            } else if (mm === "fibonacci") {
+                document.getElementById("group-fibonacci-steps").style.display = "block";
+            } else if (mm === "dalembert") {
+                document.getElementById("group-dalembert-inc").style.display = "block";
+            } else if (mm === "oscars_grind") {
+                document.getElementById("group-oscars-target").style.display = "block";
+            }
+        }
+
+        // Toggle Bot status on/off
+        document.getElementById("btn-toggle-bot").addEventListener("click", function() {
+            if (!socket || socket.readyState !== WebSocket.OPEN) return;
+            
+            const start = !botState.is_running;
+            socket.send(jsonPacket("toggle_bot", { start: start }));
+        });
+
+        function jsonPacket(action, data) {
+            return JSON.stringify({ action: action, data: data });
+        }
+
+        // Update HTML elements based on live state data
+        function updateUI(state) {
+            // Check authorization status
+            const authBadge = document.getElementById("status-auth");
+            const toggleButton = document.getElementById("btn-toggle-bot");
+            
+            if (state.authorized) {
+                authBadge.className = "badge badge-authorized";
+                authBadge.innerHTML = `<div class="badge-dot"></div>API Key: Authorized`;
+                toggleButton.disabled = false;
+            } else {
+                authBadge.className = "badge badge-unauthorized";
+                authBadge.innerHTML = `<div class="badge-dot"></div>API Key: Unauthorized`;
+                toggleButton.disabled = true;
+            }
+
+            // Update Account Mode Badge (Real vs Demo)
+            const accBadge = document.getElementById("status-account-mode");
+            if (state.authorized && state.account_type) {
+                accBadge.style.display = "flex";
+                if (state.account_type === "Real") {
+                    accBadge.style.background = "rgba(234, 179, 8, 0.08)";
+                    accBadge.style.color = "rgb(234, 179, 8)";
+                    accBadge.style.border = "1px solid rgba(234, 179, 8, 0.3)";
+                    accBadge.style.boxShadow = "0 0 10px rgba(234, 179, 8, 0.15)";
+                    accBadge.innerHTML = `<div class="badge-dot" style="background: rgb(234, 179, 8); box-shadow: 0 0 8px rgb(234, 179, 8);"></div>Real Account`;
+                } else {
+                    accBadge.style.background = "rgba(245, 158, 11, 0.08)";
+                    accBadge.style.color = "rgb(245, 158, 11)";
+                    accBadge.style.border = "1px solid rgba(245, 158, 11, 0.3)";
+                    accBadge.style.boxShadow = "0 0 10px rgba(245, 158, 11, 0.15)";
+                    accBadge.innerHTML = `<div class="badge-dot" style="background: rgb(245, 158, 11); box-shadow: 0 0 8px rgb(245, 158, 11);"></div>Demo Account`;
+                }
+            } else {
+                accBadge.style.display = "none";
+            }
+
+            // Sync persistent checkbox toggle with backend account_mode state
+            if (state.account_mode) {
+                const isReal = state.account_mode === "Real";
+                document.getElementById("account-mode-chk").checked = isReal;
+                localStorage.setItem("deriv_account_mode", state.account_mode);
+            }
+
+            // Update Start/Stop Button state
+            if (state.is_running) {
+                toggleButton.className = "power-btn power-btn-stop";
+                toggleButton.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect></svg> Stop AutoTrade`;
+            } else {
+                toggleButton.className = "power-btn power-btn-start";
+                // Only allow starting if authorized
+                if (!state.authorized) {
+                    toggleButton.disabled = true;
+                }
+                toggleButton.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg> Start AutoTrade`;
+            }
+
+            // Load values into settings inputs on initial load (only when not editing inputs)
+            if (document.activeElement.tagName !== "INPUT" && document.activeElement.tagName !== "SELECT") {
+                document.getElementById("symbol").value = state.settings.symbol;
+                document.getElementById("strategy").value = state.settings.strategy;
+                document.getElementById("money_management").value = state.settings.money_management || "martingale";
+                document.getElementById("stake").value = state.settings.stake;
+                document.getElementById("duration").value = state.settings.duration;
+                
+                document.getElementById("martingale_multiplier").value = state.settings.martingale_multiplier || 2.0;
+                document.getElementById("martingale_max_steps").value = state.settings.martingale_max_steps || 5;
+                document.getElementById("fibonacci_max_steps").value = state.settings.fibonacci_max_steps || 8;
+                document.getElementById("dalembert_increment").value = state.settings.dalembert_increment || 1.0;
+                document.getElementById("oscars_grind_target").value = state.settings.oscars_grind_target || 1.0;
+                
+                document.getElementById("tick_trend_consecutive").value = state.settings.tick_trend_consecutive || 3;
+                document.getElementById("rsi_period").value = state.settings.rsi_period || 14;
+                document.getElementById("rsi_lower_bound").value = state.settings.rsi_lower_bound || 30.0;
+                document.getElementById("rsi_upper_bound").value = state.settings.rsi_upper_bound || 70.0;
+                document.getElementById("bb_period").value = state.settings.bb_period || 20;
+                document.getElementById("bb_std_dev").value = state.settings.bb_std_dev || 2.0;
+                document.getElementById("ema_fast").value = state.settings.ema_fast || 9;
+                document.getElementById("ema_slow").value = state.settings.ema_slow || 21;
+                document.getElementById("macd_fast").value = state.settings.macd_fast || 12;
+                document.getElementById("macd_slow").value = state.settings.macd_slow || 26;
+                document.getElementById("macd_signal").value = state.settings.macd_signal || 9;
+                document.getElementById("velocity_period").value = state.settings.velocity_period || 10;
+                document.getElementById("velocity_threshold_sd").value = state.settings.velocity_threshold_sd || 1.5;
+                
+                document.getElementById("target_profit").value = state.settings.target_profit;
+                document.getElementById("stop_loss").value = state.settings.stop_loss;
+                
+                // Trigger visibility toggles immediately
+                toggleStrategyParams(state.settings.strategy);
+                toggleMMParams(state.settings.money_management || "martingale");
+            }
+
+            // Update statistics
+            document.getElementById("stat-balance").innerText = `${state.currency} ${state.balance.toFixed(2)}`;
+            document.getElementById("stat-email").innerText = state.email || "Awaiting Token Authorization...";
+            
+            // Profit card highlight
+            const profitText = document.getElementById("stat-profit");
+            const profitCard = document.getElementById("card-profit");
+            profitText.innerText = (state.total_profit_loss >= 0 ? "+" : "") + `$${state.total_profit_loss.toFixed(2)}`;
+            if (state.total_profit_loss > 0) {
+                profitText.className = "metric-value color-win";
+                profitCard.className = "glass-card metric-card bg-glow-success";
+            } else if (state.total_profit_loss < 0) {
+                profitText.className = "metric-value color-loss";
+                profitCard.className = "glass-card metric-card bg-glow-danger";
+            } else {
+                profitText.className = "metric-value";
+                profitCard.className = "glass-card metric-card";
+            }
+
+            document.getElementById("stat-winrate").innerText = `${state.win_rate.toFixed(2)}%`;
+            document.getElementById("stat-trades").innerText = `${state.wins} W / ${state.losses} L`;
+            
+            // Render money management stake details dynamically
+            const mmLabel = state.settings.money_management === "martingale" ? "Martingale" :
+                            state.settings.money_management === "fibonacci" ? "Fibonacci" :
+                            state.settings.money_management === "dalembert" ? "D'Alembert" :
+                            state.settings.money_management === "oscars_grind" ? "Oscar's Grind" : "Flat";
+            document.getElementById("stat-stake").innerText = `${mmLabel} Next Stake: $${state.current_stake.toFixed(2)}`;
+
+            // Peak balance and max drawdown telemetry indicators
+            if (state.peak_balance) {
+                document.getElementById("stat-peak").innerText = `${state.currency} ${state.peak_balance.toFixed(2)}`;
+            } else {
+                document.getElementById("stat-peak").innerText = `${state.currency} --.--`;
+            }
+
+            const drawdownCard = document.getElementById("card-drawdown");
+            if (state.max_drawdown !== undefined && state.max_drawdown_pct !== undefined) {
+                document.getElementById("stat-drawdown").innerText = `${state.max_drawdown_pct.toFixed(2)}%`;
+                document.getElementById("stat-drawdown-cash").innerText = `Peak-to-trough: $${state.max_drawdown.toFixed(2)}`;
+                if (state.max_drawdown > 0) {
+                    drawdownCard.className = "glass-card metric-card bg-glow-danger";
+                } else {
+                    drawdownCard.className = "glass-card metric-card";
+                }
+            }
+
+            // Render live indicator analytics HUD
+            const hudList = document.getElementById("indicators-list");
+            if (state.indicators_hud && Object.keys(state.indicators_hud).length > 0) {
+                hudList.innerHTML = "";
+                Object.entries(state.indicators_hud).forEach(([key, val]) => {
+                    const box = document.createElement("div");
+                    box.style.background = "rgba(255, 255, 255, 0.02)";
+                    box.style.border = "1px solid var(--border-color)";
+                    box.style.borderRadius = "8px";
+                    box.style.padding = "8px 10px";
+                    box.style.textAlign = "center";
+                    box.style.boxShadow = "inset 0 1px 3px rgba(0,0,0,0.3)";
+                    
+                    const label = document.createElement("div");
+                    label.style.fontSize = "10px";
+                    label.style.fontWeight = "600";
+                    label.style.color = "var(--color-text-muted)";
+                    label.style.textTransform = "uppercase";
+                    label.innerText = key.replace("_", " ");
+                    
+                    const value = document.createElement("div");
+                    value.style.fontSize = "14px";
+                    value.style.fontWeight = "700";
+                    value.style.marginTop = "3px";
+                    value.style.fontFamily = "'JetBrains Mono', monospace";
+                    value.innerText = val;
+                    
+                    // Style states
+                    if (val === "Bullish" || val === "Rising" || val === "Reversal BUY" || val === "Upward Spike") {
+                        value.style.color = "var(--color-success)";
+                        box.style.borderColor = "rgba(16, 185, 129, 0.2)";
+                    } else if (val === "Bearish" || val === "Falling" || val === "Reversal SELL" || val === "Downward Spike" || val === "Oversold" || val === "Overbought") {
+                        value.style.color = "var(--color-danger)";
+                        box.style.borderColor = "rgba(239, 68, 68, 0.2)";
+                    } else if (val === "Stable" || val === "Neutral") {
+                        value.style.color = "var(--color-warning)";
+                    }
+                    
+                    box.appendChild(label);
+                    box.appendChild(value);
+                    hudList.appendChild(box);
+                });
+            } else {
+                hudList.innerHTML = `<div style="text-align: center; color: var(--color-text-muted); grid-column: span 3; font-style: italic; padding: 8px 0; font-size: 13px;">Awaiting strategy telemetry ticks...</div>`;
+            }
+
+            // Update active trade HUD
+            const activeHud = document.getElementById("active-trade-container");
+            if (state.active_trade) {
+                activeHud.style.display = "flex";
+                document.getElementById("hud-contract-id").innerText = state.active_trade.contract_id;
+                document.getElementById("hud-symbol").innerText = state.active_trade.symbol;
+                document.getElementById("hud-stake").innerText = `$${state.active_trade.stake.toFixed(2)}`;
+                
+                const dirBadge = document.getElementById("hud-direction");
+                dirBadge.innerText = state.active_trade.direction;
+                dirBadge.className = `active-trade-badge ${state.active_trade.direction.toLowerCase()}`;
+                
+                const rawProfit = state.active_trade.profit;
+                const profitHUD = document.getElementById("hud-profit");
+                profitHUD.innerText = (rawProfit >= 0 ? "+" : "") + `$${rawProfit.toFixed(2)}`;
+                profitHUD.className = rawProfit >= 0 ? "color-win" : "color-loss";
+
+                // Progress Bar (Dynamic 1-Minute Countdown)
+                const isMinutes = state.settings.duration_unit === "m";
+                const totalSeconds = isMinutes ? (state.settings.duration * 60) : state.settings.duration;
+                const currentProgress = state.active_trade.progress || 0;
+                const progressPct = Math.min((currentProgress / totalSeconds) * 100, 100);
+                document.getElementById("hud-progress-fill").style.width = `${progressPct}%`;
+            } else {
+                activeHud.style.display = "none";
+            }
+
+            // Draw Tick/Candle Chart
+            if (state.candles && state.candles.length > 0) {
+                document.getElementById("chart-price").innerText = state.candles[state.candles.length - 1].close.toFixed(4);
+                candles = state.candles; // Use real, pristine candle records directly from the backend
+                drawChart();
+            } else if (state.ticks.length > 0) {
+                document.getElementById("chart-price").innerText = state.ticks[state.ticks.length - 1].toFixed(4);
+                rebuildCandles(state.ticks, state.tick_epochs);
+                drawChart();
+            }
+
+            // Sync log terminal
+            const feed = document.getElementById("console-feed");
+            const isScrolledToBottom = feed.scrollHeight - feed.clientHeight <= feed.scrollTop + 40;
+            
+            feed.innerHTML = "";
+            state.logs.forEach(line => {
+                const row = document.createElement("div");
+                row.className = "console-line";
+                row.innerText = line;
+                
+                // Color codes inside logs for visuals
+                if (line.includes("[ERROR]") || line.includes("[REJECTED]") || line.includes("[TRADE LOSS]")) {
+                    row.style.color = "var(--color-danger)";
+                } else if (line.includes("[TRADE WIN]") || line.includes("successfully!") || line.includes("Authenticated")) {
+                    row.style.color = "var(--color-success)";
+                } else if (line.includes("Signal Detected")) {
+                    row.style.color = "var(--color-warning)";
+                }
+                
+                feed.appendChild(row);
+            });
+            document.getElementById("log-count").innerText = `${state.logs.length} lines`;
+
+            // Auto Scroll logs if user was already at the bottom
+            if (isScrolledToBottom) {
+                feed.scrollTop = feed.scrollHeight;
+            }
+
+            // Sync trade history
+            const historyBody = document.getElementById("history-table-body");
+            if (state.trade_history.length > 0) {
+                historyBody.innerHTML = "";
+                // Reverse list to show latest trades on top
+                const reversedHistory = [...state.trade_history].reverse();
+                reversedHistory.forEach(item => {
+                    const row = document.createElement("tr");
+                    
+                    const timeCell = document.createElement("td");
+                    timeCell.innerText = item.time.split(" ")[1] || item.time;
+                    row.appendChild(timeCell);
+                    
+                    const symbolCell = document.createElement("td");
+                    symbolCell.innerText = item.symbol.replace("R_", "Vol 100 Index"); // make user-friendly
+                    if (item.symbol.includes("R_100")) symbolCell.innerText = "Volatility 100";
+                    if (item.symbol.includes("R_75")) symbolCell.innerText = "Volatility 75";
+                    if (item.symbol.includes("R_50")) symbolCell.innerText = "Volatility 50";
+                    if (item.symbol.includes("R_25")) symbolCell.innerText = "Volatility 25";
+                    if (item.symbol.includes("R_10")) symbolCell.innerText = "Volatility 10";
+                    row.appendChild(symbolCell);
+                    
+                    const directionCell = document.createElement("td");
+                    directionCell.innerHTML = `<span class="active-trade-badge ${item.direction.toLowerCase()}" style="font-size: 11px; padding: 2px 6px;">${item.direction}</span>`;
+                    row.appendChild(directionCell);
+                    
+                    const spotsCell = document.createElement("td");
+                    spotsCell.innerText = `${item.entry_spot ? item.entry_spot.toFixed(2) : '--'} → ${item.exit_spot ? item.exit_spot.toFixed(2) : '--'}`;
+                    row.appendChild(spotsCell);
+
+                    const stakeCell = document.createElement("td");
+                    stakeCell.className = "row-payout";
+                    stakeCell.innerText = `$${item.stake.toFixed(2)}`;
+                    row.appendChild(stakeCell);
+
+                    const payoutCell = document.createElement("td");
+                    payoutCell.className = "row-payout";
+                    payoutCell.innerText = `$${item.payout.toFixed(2)}`;
+                    row.appendChild(payoutCell);
+
+                    const profitCell = document.createElement("td");
+                    profitCell.className = item.profit >= 0 ? "row-payout color-win" : "row-payout color-loss";
+                    profitCell.innerText = (item.profit >= 0 ? "+" : "") + `$${item.profit.toFixed(2)}`;
+                    row.appendChild(profitCell);
+
+                    const resultCell = document.createElement("td");
+                    resultCell.innerHTML = `<span class="badge-outcome ${item.status}">${item.status}</span>`;
+                    row.appendChild(resultCell);
+
+                    historyBody.appendChild(row);
+                });
+            } else {
+                historyBody.innerHTML = `<tr><td colspan="8" class="empty-history-text">Awaiting first trade execution...</td></tr>`;
+            }
+        }
+
+        // Aggregates high-frequency ticks into 10-second candlesticks
+        function rebuildCandles(ticks, epochs) {
+            candles = [];
+            for (let i = 0; i < ticks.length; i++) {
+                const price = ticks[i];
+                const epoch = epochs[i];
+                const candleEpoch = Math.floor(epoch / candleTimeframe) * candleTimeframe;
+ 
+                if (candles.length === 0 || candles[candles.length - 1].time !== candleEpoch) {
+                    const prevClose = candles.length > 0 ? candles[candles.length - 1].close : price;
+                    candles.push({
+                        open: prevClose,
+                        high: Math.max(prevClose, price),
+                        low: Math.min(prevClose, price),
+                        close: price,
+                        time: candleEpoch
+                    });
+                } else {
+                    const cur = candles[candles.length - 1];
+                    cur.close = price;
+                    cur.high = Math.max(cur.high, price);
+                    cur.low = Math.min(cur.low, price);
+                }
+            }
+        }
+ 
+        // Custom High-Performance Candlestick and Tick Line Graph Renderer
+        function drawChart() {
+            const chartMode = document.getElementById("chart-mode") ? document.getElementById("chart-mode").value : "candles";
+            
+            if (chartMode === "candles") {
+                drawCandlestickChart();
+            } else {
+                drawLineChart();
+            }
+        }
+ 
+        // Renders OHLC Candlestick blocks with glowing gradients
+        function drawCandlestickChart() {
+            if (!candles || candles.length === 0) return;
+            
+            const w = canvas.width / window.devicePixelRatio;
+            const h = canvas.height / window.devicePixelRatio;
+            
+            ctx.clearRect(0, 0, w, h);
+            
+            // Grid Lines
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.03)";
+            ctx.lineWidth = 1;
+            const gridRows = 5;
+            for (let i = 1; i < gridRows; i++) {
+                const y = (h / gridRows) * i;
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(w, y);
+                ctx.stroke();
+            }
+            
+            const gridCols = 8;
+            for (let i = 1; i < gridCols; i++) {
+                const x = (w / gridCols) * i;
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, h);
+                ctx.stroke();
+            }
+ 
+            // Capping visible candles count to maximum 40 for beautiful scaling and detail spacing
+            const maxVisible = 40;
+            const displayCandles = candles.slice(-maxVisible);
+            const slotsCount = Math.max(displayCandles.length, 30);
+            
+            // Compute scaling bounds over displayed candles only
+            let min = Math.min(...displayCandles.map(c => c.low));
+            let max = Math.max(...displayCandles.map(c => c.high));
+            let pad = (max - min) * 0.15;
+            if (pad === 0) pad = 1.0;
+            min -= pad;
+            max += pad;
+ 
+            const stepX = w / slotsCount;
+            
+            function getY(val) {
+                return h - ((val - min) / (max - min)) * h;
+            }
+            
+            const offsetSlots = slotsCount - displayCandles.length;
+ 
+            // Draw each candlestick starting from right side of the canvas
+            displayCandles.forEach((c, i) => {
+                const x = (i + offsetSlots) * stepX + stepX / 2;
+                
+                const yOpen = getY(c.open);
+                const yClose = getY(c.close);
+                const yHigh = getY(c.high);
+                const yLow = getY(c.low);
+                
+                const isBullish = c.close >= c.open;
+                const candleColor = isBullish ? "rgba(16, 185, 129, 0.9)" : "rgba(239, 68, 68, 0.9)";
+                const glowColor = isBullish ? "rgba(16, 185, 129, 0.25)" : "rgba(239, 68, 68, 0.25)";
+                
+                // Draw shadow wicks (High -> Low)
+                ctx.strokeStyle = candleColor;
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                ctx.moveTo(x, yHigh);
+                ctx.lineTo(x, yLow);
+                ctx.stroke();
+                
+                // Draw candle body: capped to max 22px wide for visual excellence
+                const bodyWidth = Math.min(Math.max(stepX * 0.65, 4), 22);
+                const bodyHeight = Math.abs(yOpen - yClose) || 1;
+                const yBody = Math.min(yOpen, yClose);
+                
+                ctx.fillStyle = candleColor;
+                ctx.shadowColor = glowColor;
+                ctx.shadowBlur = 6;
+                ctx.fillRect(x - bodyWidth / 2, yBody, bodyWidth, bodyHeight);
+                ctx.shadowBlur = 0; // reset shadow
+             });
+ 
+             // Draw horizontal dotted line at latest close price
+             const lastCandle = displayCandles[displayCandles.length - 1];
+             const endY = getY(lastCandle.close);
+             ctx.beginPath();
+             ctx.setLineDash([4, 4]);
+             ctx.moveTo(0, endY);
+             ctx.lineTo(w - 10, endY);
+             ctx.strokeStyle = "rgba(255, 255, 255, 0.25)";
+             ctx.lineWidth = 1;
+             ctx.stroke();
+             ctx.setLineDash([]);
+         }
+ 
+         // Renders raw Tick line area graph (Fallback / Original mode)
+         function drawLineChart() {
+             if (!botState.ticks || botState.ticks.length === 0) return;
+             
+             const ticks = botState.ticks;
+             const w = canvas.width / window.devicePixelRatio;
+             const h = canvas.height / window.devicePixelRatio;
+             
+             ctx.clearRect(0, 0, w, h);
+             
+             // Grid Lines
+             ctx.strokeStyle = "rgba(255, 255, 255, 0.03)";
+             ctx.lineWidth = 1;
+             const gridRows = 5;
+             for (let i = 1; i < gridRows; i++) {
+                 const y = (h / gridRows) * i;
+                 ctx.beginPath();
+                 ctx.moveTo(0, y);
+                 ctx.lineTo(w, y);
+                 ctx.stroke();
+             }
+             
+             const gridCols = 8;
+             for (let i = 1; i < gridCols; i++) {
+                 const x = (w / gridCols) * i;
+                 ctx.beginPath();
+                 ctx.moveTo(x, 0);
+                 ctx.lineTo(x, h);
+                 ctx.stroke();
+             }
+ 
+             // Compute scaling bounds
+             let min = Math.min(...ticks);
+             let max = Math.max(...ticks);
+             let pad = (max - min) * 0.15;
+             if (pad === 0) pad = 1.0;
+             min -= pad;
+             max += pad;
+ 
+             const stepX = w / (ticks.length - 1);
+             
+             function getCoords(index, val) {
+                 const x = index * stepX;
+                 const y = h - ((val - min) / (max - min)) * h;
+                 return { x, y };
+             }
+ 
+             // Draw Area Fill
+             ctx.beginPath();
+             const startCoords = getCoords(0, ticks[0]);
+             ctx.moveTo(0, h);
+             ctx.lineTo(startCoords.x, startCoords.y);
+             for (let i = 1; i < ticks.length; i++) {
+                 const c = getCoords(i, ticks[i]);
+                 ctx.lineTo(c.x, c.y);
+             }
+             ctx.lineTo(w, h);
+             ctx.closePath();
+             
+             const areaGrad = ctx.createLinearGradient(0, 0, 0, h);
+             areaGrad.addColorStop(0, "rgba(59, 130, 246, 0.15)");
+             areaGrad.addColorStop(1, "rgba(59, 130, 246, 0.00)");
+             ctx.fillStyle = areaGrad;
+             ctx.fill();
+ 
+             // Draw Line
+             ctx.beginPath();
+             ctx.moveTo(startCoords.x, startCoords.y);
+             for (let i = 1; i < ticks.length; i++) {
+                 const c = getCoords(i, ticks[i]);
+                 ctx.lineTo(c.x, c.y);
+             }
+             ctx.strokeStyle = "rgba(59, 130, 246, 0.85)";
+             ctx.lineWidth = 2.5;
+             ctx.shadowColor = "rgba(59, 130, 246, 0.4)";
+             ctx.shadowBlur = 8;
+             ctx.stroke();
+             ctx.shadowBlur = 0;
+ 
+             // Draw latest pulsing tick circle
+             const lastIndex = ticks.length - 1;
+             const lastVal = ticks[lastIndex];
+             const endCoords = getCoords(lastIndex, lastVal);
+             const pulse = 6 + Math.sin(Date.now() / 150) * 2;
+             
+             ctx.beginPath();
+             ctx.arc(endCoords.x, endCoords.y, pulse, 0, 2 * Math.PI);
+             ctx.fillStyle = "rgba(59, 130, 246, 0.35)";
+             ctx.fill();
+             
+             ctx.beginPath();
+             ctx.arc(endCoords.x, endCoords.y, 4, 0, 2 * Math.PI);
+             ctx.fillStyle = "#ffffff";
+             ctx.fill();
+             
+             ctx.beginPath();
+             ctx.setLineDash([4, 4]);
+             ctx.moveTo(0, endCoords.y);
+             ctx.lineTo(endCoords.x - 10, endCoords.y);
+             ctx.strokeStyle = "rgba(255, 255, 255, 0.25)";
+             ctx.lineWidth = 1;
+             ctx.stroke();
+             ctx.setLineDash([]);
+         }
+
+        // Toggles account mode settings via WebSocket and saves selection persistently
+        function toggleAccountModeSetting(checked) {
+            const mode = checked ? "Real" : "Demo";
+            localStorage.setItem("deriv_account_mode", mode);
+            
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                console.log("Sending account mode switch request to server:", mode);
+                socket.send(jsonPacket("toggle_account_mode", { account_mode: mode }));
+            }
+        }
+
+        // Initialize checkbox state immediately on load from localStorage
+        (function() {
+            const savedMode = localStorage.getItem("deriv_account_mode") || "Demo";
+            const isReal = savedMode === "Real";
+            window.addEventListener('DOMContentLoaded', () => {
+                document.getElementById("account-mode-chk").checked = isReal;
+            });
+        })();
+
+        // Initialize dashboard connection
+        connectServer();
+    </script>
+</body>
+</html>

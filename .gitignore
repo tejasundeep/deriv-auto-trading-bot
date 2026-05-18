@@ -1,0 +1,81 @@
+# ==========================================
+# 🌌 Antigravity Deriv Bot GitIgnore Profile
+# ==========================================
+
+# --- Security & Credentials ---
+# Never commit your environment variables or credentials to git history
+.env
+.env.local
+.env.*.local
+*.env
+
+# --- Server Process ID (PID) ---
+# Temporary runtime lock file containing current server process ID
+server.pid
+
+# --- Python Artifacts & Cache ---
+__pycache__/
+*.py[cod]
+*$py.class
+.ipynb_checkpoints/
+.pytest_cache/
+.tox/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# --- Virtual Environments ---
+# Local Python environments
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# --- IDEs and Text Editors ---
+# VS Code
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# PyCharm / IntelliJ
+.idea/
+*.iml
+
+# Subversive / Eclipse
+.metadata/
+.project
+.settings/
+
+# General text editor backups
+*~
+*.swp
+*.swo
+
+# --- System & OS Logs ---
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+Desktop.ini
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# --- Logs & Databases ---
+*.log
+*.sqlite
+*.db
