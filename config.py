@@ -24,4 +24,4 @@ DEFAULT_DURATION_UNIT = "m"       # "m" for minutes duration unit
 DEFAULT_CURRENCY = "USD"          # Account currency (default USD)
 DEFAULT_TARGET_PROFIT = 10.0      # Stop trading when profit reaches +$10.00
 DEFAULT_STOP_LOSS = 10.0          # Stop trading when loss reaches -$10.00
-DEFAULT_STRATEGY = "tick_trend"   # Default strategy
+DEFAULT_STRATEGY = "ml_pattern_engine"    # Default strategy

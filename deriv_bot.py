@@ -12,6 +12,8 @@ from websockets.exceptions import ConnectionClosed
 
 import config
 from strategies import get_strategy, get_risk_manager, BaseStrategy, BaseRiskManager
+from ml_engine import HybridMLStrategy
+from storage import BotStorage
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -38,20 +40,23 @@ class DerivBot:
             "dalembert_increment": 1.0,
             "oscars_grind_target": 1.0,
             
-            # Strategy / Indicator Parameters
-            "rsi_period": 14,
-            "rsi_lower_bound": 30.0,
-            "rsi_upper_bound": 70.0,
-            "bb_period": 20,
-            "bb_std_dev": 2.0,
-            "ema_fast": 9,
-            "ema_slow": 21,
-            "macd_fast": 12,
-            "macd_slow": 26,
-            "macd_signal": 9,
-            "velocity_period": 10,
-            "velocity_threshold_sd": 1.5,
-            "tick_trend_consecutive": 3,
+            # ML-powered strategy parameters
+            "ml_window_size": 30,
+            "ml_min_samples": 500,
+            "ml_history_candles": 5000,
+            "ml_buy_threshold": 0.65,
+            "ml_sell_threshold": 0.35,
+            "ml_retrain_every": 60,
+            "ml_hidden_units": 32,
+            "ml_learning_rate": 0.005,
+            "ml_epochs": 180,
+            "ml_max_patterns": 12,
+            "ml_min_pattern_samples": 60,
+            "ml_pattern_min_hit_rate": 0.62,
+            "ml_pattern_top_k": 3,
+            "ml_pattern_confidence_threshold": 0.55,
+            "ml_regime_slices": 4,
+            "ml_model_path": "models/deriv_sequence_model.pt",
 
             "target_profit": config.DEFAULT_TARGET_PROFIT,
             "stop_loss": config.DEFAULT_STOP_LOSS,
@@ -72,11 +77,16 @@ class DerivBot:
         self.candles: List[Dict[str, Any]] = []    # Rolling 1-minute candles array
         self.ticks: List[float] = []               # Closed candle closing prices
         self.tick_epochs: List[int] = []           # Closed candle epochs
+        self.history_closes: List[float] = []      # Full close-price history for ML training
+        self.history_epochs: List[int] = []        # Full epoch history for ML training
         
         self.active_trade: Optional[Dict[str, Any]] = None  # Info about the current open contract
         self.placing_trade: bool = False                    # Safety flag to prevent overlapping orders
         self.trade_history: List[Dict[str, Any]] = []       # List of completed contracts
-        
+        self.last_ml_training: Dict[str, Any] = {}
+        self.last_backtest: Dict[str, Any] = {}
+        self.backtest_runs: List[Dict[str, Any]] = []
+
         # Statistics
         self.total_profit_loss: float = 0.0
         self.wins: int = 0
@@ -95,12 +105,16 @@ class DerivBot:
         self.max_drawdown: float = 0.0
 
         # Strategy and Risk Managers
+        self.storage = BotStorage()
         self.strategy: BaseStrategy = get_strategy(self.settings["strategy"], self.settings)
         self.risk_manager: BaseRiskManager = get_risk_manager(
             money_management=self.settings.get("money_management", "martingale"),
             base_stake=self.settings["stake"],
             config=self.settings
         )
+
+        self._load_cached_symbol_history(self.settings["symbol"])
+        self.backtest_runs = self.storage.fetch_backtest_runs(limit=10)
 
         # Dashboard callback for pushing state changes
         self.on_state_change: Optional[Callable[[Dict[str, Any]], Coroutine[Any, Any, None]]] = None
@@ -130,13 +144,6 @@ class DerivBot:
         if total_trades > 0:
             win_rate = round((self.wins / total_trades) * 100, 2)
 
-        indicators_hud = {}
-        if self.ticks:
-            try:
-                indicators_hud = self.strategy.get_indicators(self.ticks)
-            except Exception as ind_err:
-                indicators_hud = {"status": f"Error: {str(ind_err)}"}
-
         drawdown_pct = 0.0
         if self.peak_balance > 0.0:
             drawdown_pct = round((self.max_drawdown / self.peak_balance) * 100, 2)
@@ -153,6 +160,17 @@ class DerivBot:
             "ticks": self.ticks[-120:],  # Limit to 120 latest ticks to populate candlesticks
             "tick_epochs": self.tick_epochs[-120:],
             "candles": self.candles[-60:],  # Send the last 60 actual OHLC candles for precise financial charts
+            "history_closes": self.history_closes[-500:],  # ML history tail for diagnostics
+            "ml_training": self.last_ml_training,
+            "ml_backtest": self.last_backtest,
+            "backtest_runs": self.backtest_runs,
+            "ml_lifecycle": {
+                "loaded": bool(isinstance(self.strategy, HybridMLStrategy) and self.strategy.model.fitted),
+                "training": bool(isinstance(self.strategy, HybridMLStrategy) and self.strategy.training_task and not self.strategy.training_task.done()),
+                "live_learning": bool(isinstance(self.strategy, HybridMLStrategy) and self.strategy.model.fitted and self.is_running and self.authorized),
+                "trading_enabled": bool(self.is_running and self.authorized and self.strategy is not None),
+            },
+            "ml_pattern_summary": self.strategy.get_pattern_summary(self.candles) if isinstance(self.strategy, HybridMLStrategy) else {},
             "active_trade": self.active_trade,
             "trade_history": self.trade_history[-20:], # Send 20 latest history items
             "wins": self.wins,
@@ -165,7 +183,6 @@ class DerivBot:
             "peak_balance": round(self.peak_balance, 2),
             "max_drawdown": round(self.max_drawdown, 2),
             "max_drawdown_pct": drawdown_pct,
-            "indicators_hud": indicators_hud
         }
 
     async def update_settings(self, new_settings: Dict[str, Any]):
@@ -177,15 +194,20 @@ class DerivBot:
         for k, v in new_settings.items():
             if k in self.settings:
                 # Typecast appropriately
-                if k in ["stake", "target_profit", "stop_loss", "martingale_multiplier", 
-                         "dalembert_increment", "oscars_grind_target", 
-                         "rsi_lower_bound", "rsi_upper_bound", "bb_std_dev", "velocity_threshold_sd"]:
+                if k in ["stake", "target_profit", "stop_loss", "martingale_multiplier",
+                         "dalembert_increment", "oscars_grind_target"]:
                     self.settings[k] = float(v)
                 elif k in ["duration", "martingale_max_steps", "fibonacci_max_steps", 
-                           "rsi_period", "bb_period", "ema_fast", "ema_slow", 
-                           "macd_fast", "macd_slow", "macd_signal", "velocity_period", 
-                           "tick_trend_consecutive"]:
+                           "ml_window_size", "ml_min_samples",
+                           "ml_history_candles", "ml_retrain_every",
+                           "ml_hidden_units", "ml_epochs", "ml_max_patterns",
+                           "ml_min_pattern_samples", "ml_pattern_top_k",
+                           "ml_pattern_confidence_threshold", "ml_pattern_min_hit_rate",
+                           "ml_regime_slices"]:
                     self.settings[k] = int(v)
+                elif k in ["ml_buy_threshold", "ml_sell_threshold", "ml_learning_rate",
+                           "ml_pattern_min_hit_rate", "ml_pattern_confidence_threshold"]:
+                    self.settings[k] = float(v)
                 else:
                     self.settings[k] = v
             else:
@@ -205,13 +227,19 @@ class DerivBot:
         self.strategy = get_strategy(self.settings["strategy"], self.settings)
         self.log(f"Settings Refreshed: Strategy={self.strategy.name} | MoneyManagement={self.settings.get('money_management')}")
 
+        if isinstance(self.strategy, HybridMLStrategy):
+            self._schedule_ml_training()
+
         # Check if symbol subscription needs to be updated
         if self.settings["symbol"] != old_symbol and self.is_connected:
             self.candles = []
             self.ticks = []
             self.tick_epochs = []
+            self.history_closes = []
+            self.history_epochs = []
             await self._subscribe_candles(self.settings["symbol"])
             await self._unsubscribe_candles(old_symbol)
+            self._load_cached_symbol_history(self.settings["symbol"])
             self.log(f"Switched candle subscription to: {self.settings['symbol']}")
 
         self.log("Settings updated successfully.")
@@ -334,6 +362,8 @@ class DerivBot:
                     
                     # Initial symbol subscription to 1-minute candles
                     await self._subscribe_candles(self.settings["symbol"])
+                    if isinstance(self.strategy, HybridMLStrategy):
+                        self._schedule_ml_training()
 
                     # Wait for listener to complete or raise exception
                     await listener_task
@@ -370,6 +400,187 @@ class DerivBot:
             except Exception:
                 break
 
+    def _schedule_ml_training(self):
+        """Kick off model training in the background when enough history exists."""
+        if not isinstance(self.strategy, HybridMLStrategy):
+            return
+        if self.strategy.training_task and not self.strategy.training_task.done():
+            return
+        try:
+            asyncio.create_task(self._train_ml_strategy(reason="auto"))
+        except RuntimeError:
+            # Event loop may not be running yet; training will be retried later.
+            pass
+
+    def _load_cached_symbol_history(self, symbol: str):
+        """Warm the in-memory buffers from SQLite if cached candles already exist."""
+        try:
+            cached_candles = self.storage.fetch_candles(symbol, limit=int(self.settings.get("ml_history_candles", 5000)))
+        except Exception as storage_err:
+            self.log(f"[WARNING] SQLite warm-start failed: {storage_err}")
+            cached_candles = []
+
+        if cached_candles:
+            self.candles = list(cached_candles)
+            self.ticks = [float(c["close"]) for c in cached_candles]
+            self.tick_epochs = [int(c["epoch"]) for c in cached_candles]
+            self.history_closes = list(self.ticks)
+            self.history_epochs = list(self.tick_epochs)
+
+    def _refresh_backtest_cache(self):
+        try:
+            self.backtest_runs = self.storage.fetch_backtest_runs(limit=10)
+        except Exception as storage_err:
+            self.log(f"[WARNING] Failed to refresh backtest cache: {storage_err}")
+
+    def _ml_training_candles(self) -> List[Dict[str, Any]]:
+        """Returns the strongest available candle history for ML training."""
+        candles: List[Dict[str, Any]] = []
+        try:
+            candles = self.storage.fetch_candles(
+                self.settings["symbol"],
+                limit=int(self.settings.get("ml_history_candles", 5000)),
+            )
+        except Exception as storage_err:
+            self.log(f"[WARNING] SQLite history load failed: {storage_err}")
+
+        if not candles and self.candles:
+            candles = list(self.candles)
+
+        if not candles and self.history_closes:
+            candles = [
+                {
+                    "symbol": self.settings["symbol"],
+                    "epoch": int(epoch),
+                    "open": float(close),
+                    "high": float(close),
+                    "low": float(close),
+                    "close": float(close),
+                }
+                for epoch, close in zip(self.history_epochs, self.history_closes)
+            ]
+
+        if self.settings["symbol"] != config.DEFAULT_SYMBOL and self.candles:
+            if len(self.candles) > len(candles):
+                candles = list(self.candles)
+
+        return candles
+
+    async def _persist_closed_candles(self):
+        """Persist the current closed candle history to SQLite."""
+        if not self.history_closes:
+            return
+
+        candles_to_store = self.candles[:-1] if len(self.candles) > 1 else []
+        if candles_to_store:
+            try:
+                await asyncio.to_thread(self.storage.save_candles, self.settings["symbol"], candles_to_store)
+            except Exception as store_err:
+                self.log(f"[WARNING] Failed to persist candles: {store_err}")
+
+    async def _train_ml_strategy(self, reason: str = "auto") -> Dict[str, Any]:
+        """Train the ML strategy from SQLite-backed history and store the result."""
+        if not isinstance(self.strategy, HybridMLStrategy):
+            return {"status": "ml_disabled"}
+
+        candles = self._ml_training_candles()
+        min_samples = int(self.settings.get("ml_min_samples", 500))
+        if len(candles) < min_samples:
+            result = {
+                "status": f"Waiting for at least {min_samples} candles",
+                "samples": len(candles),
+                "reason": reason,
+            }
+            self.last_ml_training = result
+            return result
+
+        result = await self.strategy.train_async(candles)
+        result = dict(result)
+        result["reason"] = reason
+        result["symbol"] = self.settings["symbol"]
+        self.last_ml_training = result
+
+        try:
+            self.storage.save_model_run(
+                strategy_name=self.strategy.name,
+                samples=int(result.get("samples", len(candles))),
+                accuracy=result.get("metrics", {}).get("accuracy"),
+                loss=result.get("metrics", {}).get("loss"),
+                status=str(result.get("status", "trained")),
+                payload=result,
+            )
+        except Exception as store_err:
+            self.log(f"[WARNING] Failed to persist ML run: {store_err}")
+
+        self.log(f"[ML] {result.get('status')} | reason={reason}")
+        self.trigger_ui_update()
+        return result
+
+    async def run_ml_backtest(self) -> Dict[str, Any]:
+        """Evaluate the ML strategy on stored candle history and persist the summary."""
+        if not isinstance(self.strategy, HybridMLStrategy):
+            result = {"status": "ml_disabled"}
+            self.last_backtest = result
+            return result
+
+        candles = self._ml_training_candles()
+        result = self.strategy.backtest(candles)
+        result = dict(result)
+        result["symbol"] = self.settings["symbol"]
+        self.last_backtest = result
+
+        try:
+            self.storage.save_backtest_run(self.strategy.name, self.settings["symbol"], result)
+            self._refresh_backtest_cache()
+        except Exception as store_err:
+            self.log(f"[WARNING] Failed to persist backtest: {store_err}")
+
+        self.log(f"[BACKTEST] {result.get('status')} | signals={result.get('traded_signals')} | accuracy={result.get('accuracy')}")
+        self.trigger_ui_update()
+        return result
+
+    async def train_ml_now(self) -> Dict[str, Any]:
+        """Public entry point for manual ML training."""
+        return await self._train_ml_strategy(reason="manual")
+
+    async def run_backtest_now(self) -> Dict[str, Any]:
+        """Public entry point for manual ML backtesting."""
+        return await self.run_ml_backtest()
+
+    async def reset_ml_model(self, remove_checkpoint: bool = True) -> Dict[str, Any]:
+        """Public entry point to reset the ML model and optionally remove the checkpoint."""
+        if not isinstance(self.strategy, HybridMLStrategy):
+            return {"status": "ml_disabled"}
+
+        result = await asyncio.to_thread(self.strategy.reset_model, remove_checkpoint)
+        self.last_ml_training = result
+        self.log(f"[ML] {result.get('status')} | checkpoint_removed={result.get('checkpoint_removed')}")
+        self.trigger_ui_update()
+        return result
+
+    async def reset_ml_registry(self, remove_checkpoint: bool = True) -> Dict[str, Any]:
+        """Clear ML backtest/model history and reset the current ML checkpoint."""
+        cleared = await asyncio.to_thread(self.storage.clear_ml_history)
+        self.backtest_runs = []
+
+        reset_result: Dict[str, Any] = {"status": "registry_cleared", **cleared}
+        if isinstance(self.strategy, HybridMLStrategy):
+            model_reset = await asyncio.to_thread(self.strategy.reset_model, remove_checkpoint)
+            reset_result.update(model_reset)
+
+        self.last_ml_training = reset_result
+        self.last_backtest = {}
+        self.log(
+            "[ML] Registry cleared | backtests_deleted=%s | model_runs_deleted=%s | checkpoint_removed=%s"
+            % (
+                reset_result.get("backtest_runs_deleted", 0),
+                reset_result.get("model_runs_deleted", 0),
+                reset_result.get("checkpoint_removed", remove_checkpoint),
+            )
+        )
+        self.trigger_ui_update()
+        return reset_result
+
     async def _send_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """Helper to send a request over WebSocket and await the specific response via req_id."""
         if not self.ws or not self.is_connected:
@@ -402,6 +613,7 @@ class DerivBot:
     async def _subscribe_candles(self, symbol: str):
         """Subscribes to live 1-minute candle history and updates for the specified asset."""
         if self.ws:
+            history_count = max(5000, int(self.settings.get("ml_history_candles", 5000)))
             self.log(f"Subscribing to 1-minute candle history updates for {symbol}...")
             await self.ws.send(json.dumps({
                 "ticks_history": symbol,
@@ -409,7 +621,7 @@ class DerivBot:
                 "granularity": 60,
                 "subscribe": 1,
                 "end": "latest",
-                "count": 100
+                "count": history_count
             }))
 
     async def _unsubscribe_candles(self, symbol: str):
@@ -467,8 +679,12 @@ class DerivBot:
                     else:
                         self.ticks = [c["close"] for c in self.candles]
                         self.tick_epochs = [c["epoch"] for c in self.candles]
+                    self.history_closes = list(self.ticks)
+                    self.history_epochs = list(self.tick_epochs)
                         
                     self.log(f"Initialized rolling candlestick history with {len(self.candles)} closed candles.")
+                    await self._persist_closed_candles()
+                    self._schedule_ml_training()
                     self.trigger_ui_update()
 
                 elif msg_type == "ohlc":
@@ -496,6 +712,9 @@ class DerivBot:
                                 # 1. Finalize the closed candle closes inside self.ticks/self.tick_epochs
                                 self.ticks = [c["close"] for c in self.candles]
                                 self.tick_epochs = [c["epoch"] for c in self.candles]
+                                self.history_closes = list(self.ticks)
+                                self.history_epochs = list(self.tick_epochs)
+                                await self._persist_closed_candles()
                                 
                                 # 2. Append the new active/open candle
                                 self.candles.append(candle_data)
@@ -503,6 +722,7 @@ class DerivBot:
                                     self.candles.pop(0)
                                     
                                 # 3. Trigger 1-minute strategy check precisely on this candle-close transition!
+                                self._schedule_ml_training()
                                 await self.process_candle_close()
                                 
                         self.trigger_ui_update()
@@ -558,8 +778,12 @@ class DerivBot:
         if self.active_trade or self.placing_trade:
             return
 
-        # Analyze candle closes (ticks lists represents closed candles)
-        signal = self.strategy.analyze(self.ticks)
+        if isinstance(self.strategy, HybridMLStrategy):
+            self._schedule_ml_training()
+
+        # Analyze candle closes (history_closes represents all closed candles)
+        signal_source = self.history_closes or self.ticks
+        signal = self.strategy.analyze(signal_source)
         if signal in ["CALL", "PUT"]:
             self.log(f"Strategy Close Signal Detected: [{signal}]. Executing 1-Minute contract buy...")
             asyncio.create_task(self.execute_trade(signal))
@@ -671,6 +895,10 @@ class DerivBot:
 
             self.trade_history.append(contract_history)
             self.total_profit_loss += profit_loss
+            try:
+                await asyncio.to_thread(self.storage.save_trade, contract_history)
+            except Exception as store_err:
+                self.log(f"[WARNING] Failed to persist trade history: {store_err}")
             
             if status == "won":
                 self.wins += 1
@@ -709,6 +937,8 @@ class DerivBot:
             
             self.is_running = True
             self.log(f"Bot STARTED. Monitoring {self.settings['symbol']} using strategy: {self.strategy.name}...")
+            if isinstance(self.strategy, HybridMLStrategy):
+                self._schedule_ml_training()
         else:
             self.is_running = False
             self.log("Bot STOPPED. Monitoring suspended.")

@@ -249,7 +249,7 @@
         /* Main Workspace Layout (Two Columns) */
         .main-workspace {
             display: grid;
-            grid-template-columns: 1.6fr 1fr;
+            grid-template-columns: minmax(0, 1.35fr) minmax(340px, 0.9fr);
             gap: 24px;
         }
 
@@ -751,17 +751,6 @@
                     </div>
                 </div>
 
-                <!-- Advanced Indicator Analytics HUD -->
-                <div id="indicator-hud-card" class="glass-card" style="display: flex; flex-direction: column; gap: 12px; padding: 18px 24px; margin-bottom: 24px;">
-                    <div class="chart-title">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--color-warning);"><polygon points="12 2 2 22 22 22 12 2"></polygon><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
-                        Advanced Technical Indicator Analytics
-                    </div>
-                    <div id="indicators-list" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-top: 8px;">
-                        <div style="text-align: center; color: var(--color-text-muted); grid-column: span 3; font-style: italic; padding: 8px 0; font-size: 13px;">Awaiting strategy telemetry ticks...</div>
-                    </div>
-                </div>
-
                 <!-- Completed Trade History -->
                 <div class="glass-card history-card">
                     <div class="chart-title">
@@ -785,6 +774,65 @@
                             <tbody id="history-table-body">
                                 <tr>
                                     <td colspan="8" class="empty-history-text">Awaiting first trade execution...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Backtest Results Registry -->
+                <div class="glass-card history-card">
+                    <div class="chart-title">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--color-warning);"><path d="M3 3v18h18"></path><polyline points="7 14 11 10 14 13 21 6"></polyline></svg>
+                        Backtest Results Registry
+                    </div>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Created</th>
+                                    <th>Strategy</th>
+                                    <th>Symbol</th>
+                                    <th>Samples</th>
+                                    <th>Signals</th>
+                                    <th>Wins / Losses</th>
+                                    <th>Coverage</th>
+                                    <th>Coverage Δ</th>
+                                    <th>Model Acc</th>
+                                    <th>Trade Acc</th>
+                                    <th>Trade Δ</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="backtest-table-body">
+                                <tr>
+                                    <td colspan="10" class="empty-history-text">Awaiting first backtest execution...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Pattern Quality Registry -->
+                <div class="glass-card history-card">
+                    <div class="chart-title">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--color-success);"><path d="M4 19V5"></path><path d="M4 19h16"></path><path d="M8 16l4-6 4 3 4-7"></path></svg>
+                        Pattern Quality Registry
+                    </div>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Rank</th>
+                                    <th>Pattern</th>
+                                    <th>Direction</th>
+                                    <th>Hit Rate</th>
+                                    <th>Samples</th>
+                                </tr>
+                            </thead>
+                            <tbody id="pattern-table-body">
+                                <tr>
+                                    <td colspan="5" class="empty-history-text">Awaiting trained pattern discovery...</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -829,11 +877,7 @@
                             <div class="form-group">
                                 <label for="strategy">Trading Strategy</label>
                                 <select id="strategy" onchange="toggleStrategyParams(this.value)">
-                                    <option value="tick_trend">Candle Trend Momentum</option>
-                                    <option value="rsi_crossover">RSI Extreme Crossover</option>
-                                    <option value="bb_rsi_reversal">BB & RSI Reversal</option>
-                                    <option value="ema_macd_confluence">EMA & MACD Confluence</option>
-                                    <option value="tick_velocity">Candle Velocity Momentum</option>
+                                    <option value="ml_pattern_engine">ML Pattern Engine</option>
                                 </select>
                             </div>
 
@@ -909,74 +953,117 @@
                             </div>
 
                             <!-- ============================================== -->
-                            <!-- DYNAMIC STRATEGY-SPECIFIC PARAMETERS           -->
-                            <!-- ============================================== -->
-                            <div class="form-group-full" style="border-top: 1px solid var(--border-color); margin-top: 12px; padding-top: 12px; display: flex; align-items: center;">
-                                <span style="font-weight: 700; color: var(--color-brand); font-size: 11px; letter-spacing: 1px; text-transform: uppercase;">Strategy Fine-Tuning</span>
+                            <!-- ML settings -->
+                            <div class="form-group-full" style="border: 1px solid rgba(59, 130, 246, 0.2); background: rgba(59, 130, 246, 0.04); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 12px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+                                    <div>
+                                        <div style="font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--color-brand);">ML Control Panel</div>
+                                        <div style="font-size: 12px; color: var(--color-text-muted); margin-top: 4px;">SQLite-backed history, local training, pattern discovery, and walk-forward evaluation.</div>
+                                    </div>
+                                    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                                        <button type="button" id="btn-train-ml" class="btn-secondary" style="margin-top: 0; width: auto;">Train Model Now</button>
+                                        <button type="button" id="btn-backtest-ml" class="btn-secondary" style="margin-top: 0; width: auto;">Run Backtest</button>
+                                        <button type="button" id="btn-reset-ml-registry" class="btn-secondary" style="margin-top: 0; width: auto;">Reset Registries</button>
+                                    </div>
+                                </div>
+                                <div id="ml-summary" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; font-size: 12px; color: var(--color-text-muted);">
+                                    <div><strong style="color: var(--color-text);">Status:</strong> <span id="ml-status-text">Awaiting model data</span></div>
+                                    <div><strong style="color: var(--color-text);">Backtest:</strong> <span id="ml-backtest-text">Not run yet</span></div>
+                                    <div><strong style="color: var(--color-text);">Samples:</strong> <span id="ml-sample-text">0</span></div>
+                                    <div><strong style="color: var(--color-text);">Patterns:</strong> <span id="ml-pattern-count-text">0</span></div>
+                                    <div><strong style="color: var(--color-text);">Loaded:</strong> <span id="ml-loaded-text">No</span></div>
+                                    <div><strong style="color: var(--color-text);">Training:</strong> <span id="ml-training-text">Idle</span></div>
+                                    <div><strong style="color: var(--color-text);">Live Learning:</strong> <span id="ml-live-learning-text">No</span></div>
+                                    <div><strong style="color: var(--color-text);">Trading Enabled:</strong> <span id="ml-trading-enabled-text">No</span></div>
+                                    <div><strong style="color: var(--color-text);">Candle Mix:</strong> <span id="ml-candle-mix-text">Awaiting candles</span></div>
+                                    <div><strong style="color: var(--color-text);">Bias Heat:</strong> <span id="ml-bias-heat-text">0.00</span></div>
+                                    <div><strong style="color: var(--color-text);">Wick Imbalance:</strong> <span id="ml-wick-imbalance-text">0.00</span></div>
+                                    <div><strong style="color: var(--color-text);">Regime:</strong> <span id="ml-regime-text">Neutral</span></div>
+                                    <div>
+                                        <strong style="color: var(--color-text);">Confidence Meter:</strong>
+                                        <div style="margin-top: 6px; height: 10px; width: 100%; border-radius: 999px; background: rgba(255,255,255,0.08); overflow: hidden;">
+                                            <div id="ml-confidence-meter" style="height: 100%; width: 0%; border-radius: 999px; background: linear-gradient(90deg, #ef4444, #f59e0b, #10b981); transition: width 180ms ease, background 180ms ease;"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px;">
+                                    <button type="button" id="btn-export-candles" class="btn-secondary" style="margin-top: 0;">Export Candles CSV</button>
+                                    <button type="button" id="btn-export-trades" class="btn-secondary" style="margin-top: 0;">Export Trades CSV</button>
+                                    <button type="button" id="btn-import-candles" class="btn-secondary" style="margin-top: 0;">Import Candles CSV</button>
+                                    <button type="button" id="btn-import-trades" class="btn-secondary" style="margin-top: 0;">Import Trades CSV</button>
+                                    <button type="button" id="btn-reset-ml" class="btn-secondary" style="margin-top: 0;">Reset ML Checkpoint</button>
+                                </div>
+                                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px;">
+                                    <div class="form-group" style="gap: 4px;">
+                                        <label for="candles-csv-file" style="margin: 0;">Candles CSV File</label>
+                                        <input type="file" id="candles-csv-file" accept=".csv" />
+                                    </div>
+                                    <div class="form-group" style="gap: 4px;">
+                                        <label for="trades-csv-file" style="margin: 0;">Trades CSV File</label>
+                                        <input type="file" id="trades-csv-file" accept=".csv" />
+                                    </div>
+                                </div>
                             </div>
 
-                            <!-- Candle Trend settings -->
-                            <div id="group-tick-trend-consecutive" class="form-group strat-param">
-                                <label for="tick_trend_consecutive">Consecutive Candles</label>
-                                <input type="number" id="tick_trend_consecutive" min="2" max="10" step="1" value="3">
+                            <div id="group-ml-window" class="form-group ml-param" style="display: none;">
+                                <label for="ml_window_size">Sequence Window</label>
+                                <input type="number" id="ml_window_size" min="10" max="120" step="1" value="30">
                             </div>
-
-                            <!-- RSI settings -->
-                            <div id="group-rsi-period" class="form-group strat-param" style="display: none;">
-                                <label for="rsi_period">RSI Period</label>
-                                <input type="number" id="rsi_period" min="2" max="50" step="1" value="14">
+                            <div id="group-ml-min-samples" class="form-group ml-param" style="display: none;">
+                                <label for="ml_min_samples">Min Training Candles</label>
+                                <input type="number" id="ml_min_samples" min="100" max="20000" step="10" value="500">
                             </div>
-                            <div id="group-rsi-lower" class="form-group strat-param" style="display: none;">
-                                <label for="rsi_lower_bound">RSI Oversold (Lower)</label>
-                                <input type="number" id="rsi_lower_bound" min="5" max="45" step="1" value="30">
+                            <div id="group-ml-history" class="form-group ml-param" style="display: none;">
+                                <label for="ml_history_candles">History Candles</label>
+                                <input type="number" id="ml_history_candles" min="250" max="50000" step="10" value="5000">
                             </div>
-                            <div id="group-rsi-upper" class="form-group strat-param" style="display: none;">
-                                <label for="rsi_upper_bound">RSI Overbought (Upper)</label>
-                                <input type="number" id="rsi_upper_bound" min="55" max="95" step="1" value="70">
+                            <div id="group-ml-buy" class="form-group ml-param" style="display: none;">
+                                <label for="ml_buy_threshold">Buy Threshold</label>
+                                <input type="number" id="ml_buy_threshold" min="0.5" max="0.99" step="0.01" value="0.65">
                             </div>
-
-                            <!-- Bollinger Bands settings -->
-                            <div id="group-bb-period" class="form-group strat-param" style="display: none;">
-                                <label for="bb_period">Bollinger Period</label>
-                                <input type="number" id="bb_period" min="5" max="50" step="1" value="20">
+                            <div id="group-ml-sell" class="form-group ml-param" style="display: none;">
+                                <label for="ml_sell_threshold">Sell Threshold</label>
+                                <input type="number" id="ml_sell_threshold" min="0.01" max="0.5" step="0.01" value="0.35">
                             </div>
-                            <div id="group-bb-std" class="form-group strat-param" style="display: none;">
-                                <label for="bb_std_dev">BB Deviation (SD)</label>
-                                <input type="number" id="bb_std_dev" min="0.5" max="4.0" step="0.1" value="2.0">
+                            <div id="group-ml-retrain" class="form-group ml-param" style="display: none;">
+                                <label for="ml_retrain_every">Retrain Every Candles</label>
+                                <input type="number" id="ml_retrain_every" min="10" max="1000" step="10" value="60">
                             </div>
-
-                            <!-- EMA Crossovers settings -->
-                            <div id="group-ema-fast" class="form-group strat-param" style="display: none;">
-                                <label for="ema_fast">Fast EMA Period</label>
-                                <input type="number" id="ema_fast" min="2" max="30" step="1" value="9">
+                            <div id="group-ml-hidden" class="form-group ml-param" style="display: none;">
+                                <label for="ml_hidden_units">Hidden Units</label>
+                                <input type="number" id="ml_hidden_units" min="4" max="256" step="1" value="32">
                             </div>
-                            <div id="group-ema-slow" class="form-group strat-param" style="display: none;">
-                                <label for="ema_slow">Slow EMA Period</label>
-                                <input type="number" id="ema_slow" min="10" max="100" step="1" value="21">
+                            <div id="group-ml-rate" class="form-group ml-param" style="display: none;">
+                                <label for="ml_learning_rate">Learning Rate</label>
+                                <input type="number" id="ml_learning_rate" min="0.0001" max="0.5" step="0.0001" value="0.005">
                             </div>
-
-                            <!-- MACD parameters -->
-                            <div id="group-macd-fast" class="form-group strat-param" style="display: none;">
-                                <label for="macd_fast">MACD Fast Period</label>
-                                <input type="number" id="macd_fast" min="5" max="40" step="1" value="12">
+                            <div id="group-ml-epochs" class="form-group ml-param" style="display: none;">
+                                <label for="ml_epochs">Training Epochs</label>
+                                <input type="number" id="ml_epochs" min="10" max="4000" step="10" value="180">
                             </div>
-                            <div id="group-macd-slow" class="form-group strat-param" style="display: none;">
-                                <label for="macd_slow">MACD Slow Period</label>
-                                <input type="number" id="macd_slow" min="15" max="80" step="1" value="26">
+                            <div id="group-ml-pattern-max" class="form-group ml-param" style="display: none;">
+                                <label for="ml_max_patterns">Max Patterns</label>
+                                <input type="number" id="ml_max_patterns" min="2" max="50" step="1" value="12">
                             </div>
-                            <div id="group-macd-signal" class="form-group strat-param" style="display: none;">
-                                <label for="macd_signal">MACD Signal Period</label>
-                                <input type="number" id="macd_signal" min="2" max="25" step="1" value="9">
+                            <div id="group-ml-pattern-min-samples" class="form-group ml-param" style="display: none;">
+                                <label for="ml_min_pattern_samples">Min Pattern Samples</label>
+                                <input type="number" id="ml_min_pattern_samples" min="10" max="5000" step="10" value="60">
                             </div>
-
-                            <!-- Tick Velocity settings -->
-                            <div id="group-velocity-period" class="form-group strat-param" style="display: none;">
-                                <label for="velocity_period">Velocity Period</label>
-                                <input type="number" id="velocity_period" min="3" max="30" step="1" value="10">
+                            <div id="group-ml-pattern-hit" class="form-group ml-param" style="display: none;">
+                                <label for="ml_pattern_min_hit_rate">Min Pattern Hit Rate</label>
+                                <input type="number" id="ml_pattern_min_hit_rate" min="0.5" max="0.99" step="0.01" value="0.62">
                             </div>
-                            <div id="group-velocity-sd" class="form-group strat-param" style="display: none;">
-                                <label for="velocity_threshold_sd">Threshold Deviation</label>
-                                <input type="number" id="velocity_threshold_sd" min="0.5" max="3.0" step="0.1" value="1.5">
+                            <div id="group-ml-pattern-topk" class="form-group ml-param" style="display: none;">
+                                <label for="ml_pattern_top_k">Top Ranked Patterns</label>
+                                <input type="number" id="ml_pattern_top_k" min="1" max="10" step="1" value="3">
+                            </div>
+                            <div id="group-ml-pattern-confidence" class="form-group ml-param" style="display: none;">
+                                <label for="ml_pattern_confidence_threshold">Confidence Threshold</label>
+                                <input type="number" id="ml_pattern_confidence_threshold" min="0.5" max="0.99" step="0.01" value="0.55">
+                            </div>
+                            <div id="group-ml-regime-slices" class="form-group ml-param" style="display: none;">
+                                <label for="ml_regime_slices">Regime Slices</label>
+                                <input type="number" id="ml_regime_slices" min="2" max="12" step="1" value="4">
                             </div>
 
                             <!-- Account Mode Toggle Checkbox -->
@@ -1105,20 +1192,22 @@
                 fibonacci_max_steps: parseInt(document.getElementById("fibonacci_max_steps").value),
                 dalembert_increment: parseFloat(document.getElementById("dalembert_increment").value),
                 oscars_grind_target: parseFloat(document.getElementById("oscars_grind_target").value),
-                
-                tick_trend_consecutive: parseInt(document.getElementById("tick_trend_consecutive").value),
-                rsi_period: parseInt(document.getElementById("rsi_period").value),
-                rsi_lower_bound: parseFloat(document.getElementById("rsi_lower_bound").value),
-                rsi_upper_bound: parseFloat(document.getElementById("rsi_upper_bound").value),
-                bb_period: parseInt(document.getElementById("bb_period").value),
-                bb_std_dev: parseFloat(document.getElementById("bb_std_dev").value),
-                ema_fast: parseInt(document.getElementById("ema_fast").value),
-                ema_slow: parseInt(document.getElementById("ema_slow").value),
-                macd_fast: parseInt(document.getElementById("macd_fast").value),
-                macd_slow: parseInt(document.getElementById("macd_slow").value),
-                macd_signal: parseInt(document.getElementById("macd_signal").value),
-                velocity_period: parseInt(document.getElementById("velocity_period").value),
-                velocity_threshold_sd: parseFloat(document.getElementById("velocity_threshold_sd").value),
+
+                ml_window_size: parseInt(document.getElementById("ml_window_size").value),
+                ml_min_samples: parseInt(document.getElementById("ml_min_samples").value),
+                ml_history_candles: parseInt(document.getElementById("ml_history_candles").value),
+                ml_buy_threshold: parseFloat(document.getElementById("ml_buy_threshold").value),
+                ml_sell_threshold: parseFloat(document.getElementById("ml_sell_threshold").value),
+                ml_retrain_every: parseInt(document.getElementById("ml_retrain_every").value),
+                ml_hidden_units: parseInt(document.getElementById("ml_hidden_units").value),
+                ml_learning_rate: parseFloat(document.getElementById("ml_learning_rate").value),
+                ml_epochs: parseInt(document.getElementById("ml_epochs").value),
+                ml_max_patterns: parseInt(document.getElementById("ml_max_patterns").value),
+                ml_min_pattern_samples: parseInt(document.getElementById("ml_min_pattern_samples").value),
+                ml_pattern_min_hit_rate: parseFloat(document.getElementById("ml_pattern_min_hit_rate").value),
+                ml_pattern_top_k: parseInt(document.getElementById("ml_pattern_top_k").value),
+                ml_pattern_confidence_threshold: parseFloat(document.getElementById("ml_pattern_confidence_threshold").value),
+                ml_regime_slices: parseInt(document.getElementById("ml_regime_slices").value),
                 
                 target_profit: parseFloat(document.getElementById("target_profit").value),
                 stop_loss: parseFloat(document.getElementById("stop_loss").value)
@@ -1132,28 +1221,11 @@
             // Hide all first
             const params = document.querySelectorAll(".strat-param");
             params.forEach(el => el.style.display = "none");
+            const mlParams = document.querySelectorAll(".ml-param");
+            mlParams.forEach(el => el.style.display = "none");
             
-            if (strategy === "tick_trend") {
-                document.getElementById("group-tick-trend-consecutive").style.display = "block";
-            } else if (strategy === "rsi_crossover") {
-                document.getElementById("group-rsi-period").style.display = "block";
-                document.getElementById("group-rsi-lower").style.display = "block";
-                document.getElementById("group-rsi-upper").style.display = "block";
-            } else if (strategy === "bb_rsi_reversal") {
-                document.getElementById("group-bb-period").style.display = "block";
-                document.getElementById("group-bb-std").style.display = "block";
-                document.getElementById("group-rsi-period").style.display = "block";
-                document.getElementById("group-rsi-lower").style.display = "block";
-                document.getElementById("group-rsi-upper").style.display = "block";
-            } else if (strategy === "ema_macd_confluence") {
-                document.getElementById("group-ema-fast").style.display = "block";
-                document.getElementById("group-ema-slow").style.display = "block";
-                document.getElementById("group-macd-fast").style.display = "block";
-                document.getElementById("group-macd-slow").style.display = "block";
-                document.getElementById("group-macd-signal").style.display = "block";
-            } else if (strategy === "tick_velocity") {
-                document.getElementById("group-velocity-period").style.display = "block";
-                document.getElementById("group-velocity-sd").style.display = "block";
+            if (strategy === "ml_pattern_engine") {
+                document.querySelectorAll(".ml-param").forEach(el => el.style.display = "block");
             }
         }
 
@@ -1182,6 +1254,81 @@
             const start = !botState.is_running;
             socket.send(jsonPacket("toggle_bot", { start: start }));
         });
+
+        document.getElementById("btn-train-ml").addEventListener("click", function() {
+            if (!socket || socket.readyState !== WebSocket.OPEN) return;
+            socket.send(jsonPacket("train_ml", {}));
+        });
+
+        document.getElementById("btn-backtest-ml").addEventListener("click", function() {
+            if (!socket || socket.readyState !== WebSocket.OPEN) return;
+            socket.send(jsonPacket("run_backtest", {}));
+        });
+
+        document.getElementById("btn-reset-ml").addEventListener("click", function() {
+            if (!socket || socket.readyState !== WebSocket.OPEN) return;
+            socket.send(jsonPacket("reset_ml_model", { remove_checkpoint: true }));
+        });
+
+        document.getElementById("btn-reset-ml-registry").addEventListener("click", function() {
+            if (!socket || socket.readyState !== WebSocket.OPEN) return;
+            socket.send(jsonPacket("reset_ml_registry", { remove_checkpoint: true }));
+        });
+
+        document.getElementById("btn-export-candles").addEventListener("click", function() {
+            const symbol = document.getElementById("symbol").value;
+            downloadCsv(`/api/export/csv/candles?symbol=${encodeURIComponent(symbol)}`);
+        });
+
+        document.getElementById("btn-export-trades").addEventListener("click", function() {
+            const symbol = document.getElementById("symbol").value;
+            downloadCsv(`/api/export/csv/trades?symbol=${encodeURIComponent(symbol)}`);
+        });
+
+        document.getElementById("btn-import-candles").addEventListener("click", async function() {
+            await uploadCsv("/api/import/csv/candles", "candles-csv-file", true);
+        });
+
+        document.getElementById("btn-import-trades").addEventListener("click", async function() {
+            await uploadCsv("/api/import/csv/trades", "trades-csv-file", false);
+        });
+
+        function downloadCsv(url) {
+            const link = document.createElement("a");
+            link.href = url;
+            link.target = "_blank";
+            link.rel = "noopener";
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+        }
+
+        async function uploadCsv(url, inputId, includeSymbol) {
+            const input = document.getElementById(inputId);
+            if (!input || !input.files || input.files.length === 0) {
+                console.warn("Please choose a CSV file first.");
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append("file", input.files[0]);
+            if (includeSymbol) {
+                formData.append("symbol", document.getElementById("symbol").value);
+            }
+
+            const response = await fetch(url, {
+                method: "POST",
+                body: formData
+            });
+
+            if (!response.ok) {
+                console.error("CSV import failed", await response.text());
+                return;
+            }
+
+            const result = await response.json();
+            console.log("CSV import result:", result);
+        }
 
         function jsonPacket(action, data) {
             return JSON.stringify({ action: action, data: data });
@@ -1257,20 +1404,21 @@
                 document.getElementById("fibonacci_max_steps").value = state.settings.fibonacci_max_steps || 8;
                 document.getElementById("dalembert_increment").value = state.settings.dalembert_increment || 1.0;
                 document.getElementById("oscars_grind_target").value = state.settings.oscars_grind_target || 1.0;
-                
-                document.getElementById("tick_trend_consecutive").value = state.settings.tick_trend_consecutive || 3;
-                document.getElementById("rsi_period").value = state.settings.rsi_period || 14;
-                document.getElementById("rsi_lower_bound").value = state.settings.rsi_lower_bound || 30.0;
-                document.getElementById("rsi_upper_bound").value = state.settings.rsi_upper_bound || 70.0;
-                document.getElementById("bb_period").value = state.settings.bb_period || 20;
-                document.getElementById("bb_std_dev").value = state.settings.bb_std_dev || 2.0;
-                document.getElementById("ema_fast").value = state.settings.ema_fast || 9;
-                document.getElementById("ema_slow").value = state.settings.ema_slow || 21;
-                document.getElementById("macd_fast").value = state.settings.macd_fast || 12;
-                document.getElementById("macd_slow").value = state.settings.macd_slow || 26;
-                document.getElementById("macd_signal").value = state.settings.macd_signal || 9;
-                document.getElementById("velocity_period").value = state.settings.velocity_period || 10;
-                document.getElementById("velocity_threshold_sd").value = state.settings.velocity_threshold_sd || 1.5;
+                document.getElementById("ml_window_size").value = state.settings.ml_window_size || 30;
+                document.getElementById("ml_min_samples").value = state.settings.ml_min_samples || 250;
+                document.getElementById("ml_history_candles").value = state.settings.ml_history_candles || 1000;
+                document.getElementById("ml_buy_threshold").value = state.settings.ml_buy_threshold || 0.55;
+                document.getElementById("ml_sell_threshold").value = state.settings.ml_sell_threshold || 0.45;
+                document.getElementById("ml_retrain_every").value = state.settings.ml_retrain_every || 60;
+                document.getElementById("ml_hidden_units").value = state.settings.ml_hidden_units || 24;
+                document.getElementById("ml_learning_rate").value = state.settings.ml_learning_rate || 0.01;
+                document.getElementById("ml_epochs").value = state.settings.ml_epochs || 120;
+                document.getElementById("ml_max_patterns").value = state.settings.ml_max_patterns || 12;
+                document.getElementById("ml_min_pattern_samples").value = state.settings.ml_min_pattern_samples || 60;
+                document.getElementById("ml_pattern_min_hit_rate").value = state.settings.ml_pattern_min_hit_rate || 0.62;
+                document.getElementById("ml_pattern_top_k").value = state.settings.ml_pattern_top_k || 3;
+                document.getElementById("ml_pattern_confidence_threshold").value = state.settings.ml_pattern_confidence_threshold || 0.55;
+                document.getElementById("ml_regime_slices").value = state.settings.ml_regime_slices || 4;
                 
                 document.getElementById("target_profit").value = state.settings.target_profit;
                 document.getElementById("stop_loss").value = state.settings.stop_loss;
@@ -1278,6 +1426,68 @@
                 // Trigger visibility toggles immediately
                 toggleStrategyParams(state.settings.strategy);
                 toggleMMParams(state.settings.money_management || "martingale");
+            }
+
+            if (state.ml_training) {
+                const status = state.ml_training.status || "Unknown";
+                document.getElementById("ml-status-text").innerText = status;
+                document.getElementById("ml-sample-text").innerText = state.ml_training.samples ?? 0;
+                document.getElementById("ml-pattern-count-text").innerText = state.ml_training.patterns ? state.ml_training.patterns.length : (state.ml_pattern_summary?.pattern_count ?? 0);
+            }
+            const lifecycle = state.ml_lifecycle || {};
+            document.getElementById("ml-loaded-text").innerText = lifecycle.loaded ? "Yes" : "No";
+            document.getElementById("ml-training-text").innerText = lifecycle.training ? "Running" : "Idle";
+            document.getElementById("ml-live-learning-text").innerText = lifecycle.live_learning ? "Yes" : "No";
+            document.getElementById("ml-trading-enabled-text").innerText = lifecycle.trading_enabled ? "Yes" : "No";
+            if (state.ml_backtest) {
+                const bt = state.ml_backtest;
+                const acc = bt.accuracy !== null && bt.accuracy !== undefined ? `${(bt.accuracy * 100).toFixed(2)}%` : "N/A";
+                const tradeAcc = bt.trade_accuracy !== null && bt.trade_accuracy !== undefined ? `${(bt.trade_accuracy * 100).toFixed(2)}%` : "N/A";
+                const coverage = bt.coverage !== null && bt.coverage !== undefined ? `${(bt.coverage * 100).toFixed(2)}%` : "0.00%";
+                document.getElementById("ml-backtest-text").innerText = `${bt.status || "Done"} | model ${acc} | trade ${tradeAcc} | cover ${coverage}`;
+            }
+
+            const patternBody = document.getElementById("pattern-table-body");
+            const patternSummary = state.ml_pattern_summary || {};
+            const candleMix = patternSummary.candle_metrics || {};
+            const patternDebug = patternSummary.pattern_debug || {};
+            document.getElementById("ml-candle-mix-text").innerText = candleMix.color
+                ? `${candleMix.color.toUpperCase()} | body ${(candleMix.body_ratio * 100 || 0).toFixed(1)}% | upper ${(candleMix.upper_wick_ratio * 100 || 0).toFixed(1)}% | lower ${(candleMix.lower_wick_ratio * 100 || 0).toFixed(1)}%`
+                : "Awaiting candles";
+            document.getElementById("ml-bias-heat-text").innerText = `${((candleMix.bias_heat ?? 0) * 100).toFixed(2)}%`;
+            document.getElementById("ml-wick-imbalance-text").innerText = `${((candleMix.wick_imbalance ?? 0) * 100).toFixed(2)}%`;
+            document.getElementById("ml-regime-text").innerText = (candleMix.regime || "neutral").toUpperCase();
+            const meter = document.getElementById("ml-confidence-meter");
+            const confidenceMeter = patternSummary.confidence_meter ?? 0;
+            const meterPct = Math.max(0, Math.min(100, confidenceMeter * 100));
+            meter.style.width = `${meterPct}%`;
+            meter.style.background = meterPct >= 75 ? "linear-gradient(90deg, #10b981, #34d399)" :
+                                      meterPct >= 50 ? "linear-gradient(90deg, #f59e0b, #fbbf24)" :
+                                      "linear-gradient(90deg, #ef4444, #f97316)";
+            const patterns = patternSummary.top_patterns || [];
+            if (patterns.length > 0) {
+                patternBody.innerHTML = "";
+                patterns.forEach((pattern) => {
+                    const row = document.createElement("tr");
+                    const strength = pattern.strength || "watch";
+                    const bg = strength === "elite" ? "rgba(16, 185, 129, 0.12)" : strength === "strong" ? "rgba(59, 130, 246, 0.10)" : "rgba(245, 158, 11, 0.08)";
+                    const border = strength === "elite" ? "rgba(16, 185, 129, 0.35)" : strength === "strong" ? "rgba(59, 130, 246, 0.28)" : "rgba(245, 158, 11, 0.22)";
+                    row.style.background = bg;
+                    row.style.borderLeft = `4px solid ${border}`;
+                    row.innerHTML = `
+                        <td>${pattern.rank ?? "N/A"}</td>
+                        <td>${pattern.name || "N/A"}</td>
+                        <td>${pattern.direction || "N/A"}</td>
+                        <td>${((pattern.hit_rate ?? 0) * 100).toFixed(2)}%</td>
+                        <td>${pattern.samples ?? 0}</td>
+                    `;
+                    patternBody.appendChild(row);
+                });
+            } else {
+                const summaryText = patternSummary.abstain_mode
+                    ? `Abstaining. raw=${patternDebug.raw ?? 0}, strict=${patternDebug.strict ?? 0}, relaxed=${patternDebug.relaxed ?? 0}, kept=${patternDebug.kept ?? 0}`
+                    : `Awaiting trained pattern discovery... raw=${patternDebug.raw ?? 0}`;
+                patternBody.innerHTML = `<tr><td colspan="5" class="empty-history-text">${summaryText}</td></tr>`;
             }
 
             // Update statistics
@@ -1325,52 +1535,6 @@
                 } else {
                     drawdownCard.className = "glass-card metric-card";
                 }
-            }
-
-            // Render live indicator analytics HUD
-            const hudList = document.getElementById("indicators-list");
-            if (state.indicators_hud && Object.keys(state.indicators_hud).length > 0) {
-                hudList.innerHTML = "";
-                Object.entries(state.indicators_hud).forEach(([key, val]) => {
-                    const box = document.createElement("div");
-                    box.style.background = "rgba(255, 255, 255, 0.02)";
-                    box.style.border = "1px solid var(--border-color)";
-                    box.style.borderRadius = "8px";
-                    box.style.padding = "8px 10px";
-                    box.style.textAlign = "center";
-                    box.style.boxShadow = "inset 0 1px 3px rgba(0,0,0,0.3)";
-                    
-                    const label = document.createElement("div");
-                    label.style.fontSize = "10px";
-                    label.style.fontWeight = "600";
-                    label.style.color = "var(--color-text-muted)";
-                    label.style.textTransform = "uppercase";
-                    label.innerText = key.replace("_", " ");
-                    
-                    const value = document.createElement("div");
-                    value.style.fontSize = "14px";
-                    value.style.fontWeight = "700";
-                    value.style.marginTop = "3px";
-                    value.style.fontFamily = "'JetBrains Mono', monospace";
-                    value.innerText = val;
-                    
-                    // Style states
-                    if (val === "Bullish" || val === "Rising" || val === "Reversal BUY" || val === "Upward Spike") {
-                        value.style.color = "var(--color-success)";
-                        box.style.borderColor = "rgba(16, 185, 129, 0.2)";
-                    } else if (val === "Bearish" || val === "Falling" || val === "Reversal SELL" || val === "Downward Spike" || val === "Oversold" || val === "Overbought") {
-                        value.style.color = "var(--color-danger)";
-                        box.style.borderColor = "rgba(239, 68, 68, 0.2)";
-                    } else if (val === "Stable" || val === "Neutral") {
-                        value.style.color = "var(--color-warning)";
-                    }
-                    
-                    box.appendChild(label);
-                    box.appendChild(value);
-                    hudList.appendChild(box);
-                });
-            } else {
-                hudList.innerHTML = `<div style="text-align: center; color: var(--color-text-muted); grid-column: span 3; font-style: italic; padding: 8px 0; font-size: 13px;">Awaiting strategy telemetry ticks...</div>`;
             }
 
             // Update active trade HUD
@@ -1492,6 +1656,83 @@
                 });
             } else {
                 historyBody.innerHTML = `<tr><td colspan="8" class="empty-history-text">Awaiting first trade execution...</td></tr>`;
+            }
+
+            // Sync backtest history
+            const backtestBody = document.getElementById("backtest-table-body");
+            if (state.backtest_runs && state.backtest_runs.length > 0) {
+                backtestBody.innerHTML = "";
+                state.backtest_runs.forEach((item, idx) => {
+                    const row = document.createElement("tr");
+
+                    const createdCell = document.createElement("td");
+                    createdCell.innerText = item.created_at ? item.created_at.replace("T", " ").slice(0, 19) : "--";
+                    row.appendChild(createdCell);
+
+                    const strategyCell = document.createElement("td");
+                    strategyCell.innerText = item.strategy_name || "--";
+                    row.appendChild(strategyCell);
+
+                    const symbolCell = document.createElement("td");
+                    symbolCell.innerText = item.symbol || "--";
+                    row.appendChild(symbolCell);
+
+                    const samplesCell = document.createElement("td");
+                    samplesCell.innerText = item.total_samples ?? 0;
+                    row.appendChild(samplesCell);
+
+                    const signalsCell = document.createElement("td");
+                    signalsCell.innerText = item.traded_signals ?? 0;
+                    row.appendChild(signalsCell);
+
+                    const wlCell = document.createElement("td");
+                    wlCell.innerText = `${item.wins ?? 0} / ${item.losses ?? 0}`;
+                    row.appendChild(wlCell);
+
+                    const coverageCell = document.createElement("td");
+                    const coveragePct = item.coverage !== null && item.coverage !== undefined ? item.coverage * 100 : null;
+                    coverageCell.innerText = coveragePct !== null ? `${coveragePct.toFixed(2)}%` : "N/A";
+                    row.appendChild(coverageCell);
+
+                    const coverageDeltaCell = document.createElement("td");
+                    const prevCoverage = idx > 0 ? (state.backtest_runs[idx - 1].coverage ?? null) : null;
+                    if (coveragePct !== null && prevCoverage !== null && prevCoverage !== undefined) {
+                        const delta = coveragePct - (prevCoverage * 100);
+                        coverageDeltaCell.className = delta >= 0 ? "color-win" : "color-loss";
+                        coverageDeltaCell.innerText = `${delta >= 0 ? "+" : ""}${delta.toFixed(2)}%`;
+                    } else {
+                        coverageDeltaCell.innerText = "N/A";
+                    }
+                    row.appendChild(coverageDeltaCell);
+
+                    const modelAccCell = document.createElement("td");
+                    modelAccCell.innerText = item.accuracy !== null && item.accuracy !== undefined ? `${(item.accuracy * 100).toFixed(2)}%` : "N/A";
+                    row.appendChild(modelAccCell);
+
+                    const tradeAccCell = document.createElement("td");
+                    const tradePct = item.trade_accuracy !== null && item.trade_accuracy !== undefined ? item.trade_accuracy * 100 : null;
+                    tradeAccCell.innerText = tradePct !== null ? `${tradePct.toFixed(2)}%` : "N/A";
+                    row.appendChild(tradeAccCell);
+
+                    const tradeDeltaCell = document.createElement("td");
+                    const prevTrade = idx > 0 ? (state.backtest_runs[idx - 1].trade_accuracy ?? null) : null;
+                    if (tradePct !== null && prevTrade !== null && prevTrade !== undefined) {
+                        const delta = tradePct - (prevTrade * 100);
+                        tradeDeltaCell.className = delta >= 0 ? "color-win" : "color-loss";
+                        tradeDeltaCell.innerText = `${delta >= 0 ? "+" : ""}${delta.toFixed(2)}%`;
+                    } else {
+                        tradeDeltaCell.innerText = "N/A";
+                    }
+                    row.appendChild(tradeDeltaCell);
+
+                    const statusCell = document.createElement("td");
+                    statusCell.innerHTML = `<span class="badge-outcome ${item.status && item.status.toLowerCase().includes('complete') ? 'won' : 'lost'}">${item.status || 'ok'}</span>`;
+                    row.appendChild(statusCell);
+
+                    backtestBody.appendChild(row);
+                });
+            } else {
+                backtestBody.innerHTML = `<tr><td colspan="12" class="empty-history-text">Awaiting first backtest execution...</td></tr>`;
             }
         }
 

@@ -79,3 +79,8 @@ Desktop.ini
 *.log
 *.sqlite
 *.db
+
+#ML Models
+models/*.pt
+data/*sqlite3*
+*.csv

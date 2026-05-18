@@ -1,10 +1,12 @@
 import asyncio
+import csv
+import io
 import os
 import json
 import logging
 from typing import List
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form, HTTPException
+from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
 import uvicorn
 
 from config import PORT, HOST
@@ -68,6 +70,90 @@ async def get_dashboard():
     return FileResponse(index_path)
 
 
+def _csv_response(filename: str, rows: list[dict], fieldnames: list[str]):
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=fieldnames)
+    writer.writeheader()
+    for row in rows:
+        writer.writerow({key: row.get(key, "") for key in fieldnames})
+    buffer.seek(0)
+    return StreamingResponse(
+        iter([buffer.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/export/csv/candles")
+async def export_candles_csv(symbol: str | None = None):
+    target_symbol = symbol or bot.settings["symbol"]
+    rows = bot.storage.fetch_candles(target_symbol)
+    return _csv_response(
+        f"{target_symbol}_candles.csv",
+        rows,
+        ["symbol", "epoch", "open", "high", "low", "close"],
+    )
+
+
+@app.get("/api/export/csv/trades")
+async def export_trades_csv(symbol: str | None = None):
+    rows = bot.storage.fetch_trades(symbol=symbol)
+    return _csv_response(
+        f"{(symbol or 'all')}_trades.csv",
+        rows,
+        ["contract_id", "symbol", "direction", "stake", "payout", "profit", "status", "entry_spot", "exit_spot", "traded_at"],
+    )
+
+
+@app.post("/api/import/csv/candles")
+async def import_candles_csv(file: UploadFile = File(...), symbol: str | None = Form(None)):
+    if not file.filename.lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Please upload a CSV file.")
+
+    raw = await file.read()
+    text = raw.decode("utf-8-sig")
+    reader = csv.DictReader(io.StringIO(text))
+    rows = []
+    for row in reader:
+        if not row.get("epoch"):
+            continue
+        rows.append(
+            {
+                "epoch": int(float(row["epoch"])),
+                "open": float(row["open"]),
+                "high": float(row["high"]),
+                "low": float(row["low"]),
+                "close": float(row["close"]),
+            }
+        )
+
+    target_symbol = symbol or (rows[0].get("symbol") if rows and rows[0].get("symbol") else bot.settings["symbol"])
+    imported = bot.storage.import_candles(target_symbol, rows)
+    if target_symbol == bot.settings["symbol"] and imported > 0:
+        bot._load_cached_symbol_history(target_symbol)
+        bot.trigger_ui_update()
+    return JSONResponse({"status": "ok", "imported": imported, "symbol": target_symbol})
+
+
+@app.post("/api/import/csv/trades")
+async def import_trades_csv(file: UploadFile = File(...)):
+    if not file.filename.lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Please upload a CSV file.")
+
+    raw = await file.read()
+    text = raw.decode("utf-8-sig")
+    reader = csv.DictReader(io.StringIO(text))
+    rows = []
+    for row in reader:
+        if not row.get("contract_id"):
+            row["contract_id"] = f"imported-{len(rows)}"
+        rows.append(row)
+
+    imported = bot.storage.import_trades(rows)
+    bot.trigger_ui_update()
+    return JSONResponse({"status": "ok", "imported": imported})
+
+
 @app.websocket("/ws/client")
 async def websocket_client_endpoint(websocket: WebSocket):
     """
@@ -102,6 +188,20 @@ async def websocket_client_endpoint(websocket: WebSocket):
                 elif action == "toggle_account_mode":
                     mode = payload.get("account_mode", "Demo")
                     await bot.toggle_account_mode(mode)
+
+                elif action == "train_ml":
+                    await bot.train_ml_now()
+
+                elif action == "run_backtest":
+                    await bot.run_backtest_now()
+
+                elif action == "reset_ml_model":
+                    remove_checkpoint = bool(payload.get("remove_checkpoint", True))
+                    await bot.reset_ml_model(remove_checkpoint)
+
+                elif action == "reset_ml_registry":
+                    remove_checkpoint = bool(payload.get("remove_checkpoint", True))
+                    await bot.reset_ml_registry(remove_checkpoint)
 
             except json.JSONDecodeError:
                 logger.warning("Received invalid non-JSON packet from dashboard client.")
