@@ -1,7 +1,9 @@
 import abc
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 
 from ml_engine import HybridMLStrategy
+import pandas as pd
+import ta
 
 # ==========================================
 # 1. Trading Strategies (ML Only)
@@ -15,18 +17,113 @@ class BaseStrategy(abc.ABC):
         self.config = config or {}
 
     @abc.abstractmethod
-    def analyze(self, ticks: List[float]) -> Optional[str]:
+    def analyze(self, data: Any, timeframe: int = 1) -> Tuple[Optional[str], Optional[int]]:
         """
-        Analyzes price series and returns a signal: "CALL", "PUT", or None.
+        Analyzes price series and returns a tuple of (signal, expiry_minutes).
+        signal: "CALL", "PUT", or None.
+        expiry_minutes: The recommended trade duration for this signal, or None.
         """
         pass
 
     @abc.abstractmethod
-    def get_indicators(self, ticks: List[float]) -> Dict[str, Any]:
+    def get_indicators(self, data: Any) -> Dict[str, Any]:
         """
-        Returns strategy telemetry for the ML dashboard.
+        Returns strategy telemetry for the dashboard.
         """
         pass
+
+class TechnicalIndicatorStrategy(BaseStrategy):
+    """
+    Technical Indicator Strategy based on explicit user rules.
+    Dynamically adjusts parameters based on the timeframe.
+    """
+    # Timeframe lookup table (Timeframe -> Dict of parameters)
+    TF_PARAMS = {
+        15: {"ema_fast": 20, "ema_slow": 50,  "rsi_buy": 58, "rsi_sell": 42, "macd_f": 12, "macd_s": 26, "macd_sig": 9, "adx": 22, "stoch_k": 14, "stoch_d": 3, "expiry": 30},
+        20: {"ema_fast": 20, "ema_slow": 50,  "rsi_buy": 58, "rsi_sell": 42, "macd_f": 12, "macd_s": 26, "macd_sig": 9, "adx": 22, "stoch_k": 14, "stoch_d": 3, "expiry": 40},
+        25: {"ema_fast": 30, "ema_slow": 60,  "rsi_buy": 58, "rsi_sell": 42, "macd_f": 12, "macd_s": 26, "macd_sig": 9, "adx": 23, "stoch_k": 14, "stoch_d": 3, "expiry": 50},
+        30: {"ema_fast": 30, "ema_slow": 70,  "rsi_buy": 58, "rsi_sell": 42, "macd_f": 12, "macd_s": 26, "macd_sig": 9, "adx": 23, "stoch_k": 14, "stoch_d": 3, "expiry": 60},
+        40: {"ema_fast": 50, "ema_slow": 100, "rsi_buy": 58, "rsi_sell": 42, "macd_f": 12, "macd_s": 26, "macd_sig": 9, "adx": 24, "stoch_k": 14, "stoch_d": 3, "expiry": 80},
+        45: {"ema_fast": 50, "ema_slow": 100, "rsi_buy": 58, "rsi_sell": 42, "macd_f": 12, "macd_s": 26, "macd_sig": 9, "adx": 24, "stoch_k": 14, "stoch_d": 3, "expiry": 90},
+        50: {"ema_fast": 50, "ema_slow": 120, "rsi_buy": 58, "rsi_sell": 42, "macd_f": 12, "macd_s": 26, "macd_sig": 9, "adx": 25, "stoch_k": 14, "stoch_d": 3, "expiry": 100},
+        55: {"ema_fast": 50, "ema_slow": 120, "rsi_buy": 58, "rsi_sell": 42, "macd_f": 12, "macd_s": 26, "macd_sig": 9, "adx": 25, "stoch_k": 14, "stoch_d": 3, "expiry": 110},
+    }
+
+    def __init__(self, config=None):
+        super().__init__("Technical Indicators", "Dynamic Timeframe Multi-Indicator Rules", config)
+        self.last_indicators = {}
+        
+    def analyze(self, data: List[Dict[str, float]], timeframe: int = 15) -> Tuple[Optional[str], Optional[int]]:
+        # Fallback to 15m if timeframe is not in table (though it always should be)
+        params = self.TF_PARAMS.get(timeframe, self.TF_PARAMS[15])
+        
+        if not data or len(data) < params["ema_slow"] + 20: 
+            return None, None
+            
+        df = pd.DataFrame(data)
+        
+        # Calculate Indicators dynamically based on timeframe params
+        df['EMA_Fast'] = ta.trend.ema_indicator(df['close'], window=params["ema_fast"])
+        df['EMA_Slow'] = ta.trend.ema_indicator(df['close'], window=params["ema_slow"])
+        df['RSI'] = ta.momentum.rsi(df['close'], window=14)
+        
+        macd = ta.trend.MACD(df['close'], window_fast=params["macd_f"], window_slow=params["macd_s"], window_sign=params["macd_sig"])
+        df['MACD'] = macd.macd()
+        df['MACD_Signal'] = macd.macd_signal()
+        
+        adx = ta.trend.ADXIndicator(df['high'], df['low'], df['close'], window=14)
+        df['ADX'] = adx.adx()
+        
+        atr = ta.volatility.AverageTrueRange(df['high'], df['low'], df['close'], window=14)
+        df['ATR'] = atr.average_true_range()
+        
+        # Stochastic Oscillator
+        stoch = ta.momentum.StochasticOscillator(
+            df['high'], df['low'], df['close'], 
+            window=params["stoch_k"], smooth_window=params["stoch_d"]
+        )
+        df['Stoch_K'] = stoch.stoch()
+        df['Stoch_D'] = stoch.stoch_signal()
+        
+        latest = df.iloc[-1]
+        
+        self.last_indicators = {
+            "Timeframe": timeframe,
+            "EMA50": round(float(latest['EMA_Fast']), 5) if pd.notna(latest['EMA_Fast']) else 0,
+            "EMA200": round(float(latest['EMA_Slow']), 5) if pd.notna(latest['EMA_Slow']) else 0,
+            "RSI": round(float(latest['RSI']), 2) if pd.notna(latest['RSI']) else 0,
+            "MACD": round(float(latest['MACD']), 5) if pd.notna(latest['MACD']) else 0,
+            "MACD_Signal": round(float(latest['MACD_Signal']), 5) if pd.notna(latest['MACD_Signal']) else 0,
+            "ADX": round(float(latest['ADX']), 2) if pd.notna(latest['ADX']) else 0,
+            "ATR": round(float(latest['ATR']), 5) if pd.notna(latest['ATR']) else 0,
+            "Stoch_K": round(float(latest['Stoch_K']), 2) if pd.notna(latest['Stoch_K']) else 0,
+            "Stoch_D": round(float(latest['Stoch_D']), 2) if pd.notna(latest['Stoch_D']) else 0,
+        }
+        
+        if self.last_indicators['ATR'] < 0.00005: 
+            return None, None
+            
+        # BUY Condition
+        if (latest['EMA_Fast'] > latest['EMA_Slow'] and
+            latest['RSI'] > params["rsi_buy"] and
+            latest['MACD'] > latest['MACD_Signal'] and
+            latest['ADX'] > params["adx"] and
+            latest['Stoch_K'] > latest['Stoch_D']):
+            return "CALL", params["expiry"]
+            
+        # SELL Condition
+        if (latest['EMA_Fast'] < latest['EMA_Slow'] and
+            latest['RSI'] < params["rsi_sell"] and
+            latest['MACD'] < latest['MACD_Signal'] and
+            latest['ADX'] > params["adx"] and
+            latest['Stoch_K'] < latest['Stoch_D']):
+            return "PUT", params["expiry"]
+            
+        return None, None
+        
+    def get_indicators(self, data: Any = None) -> Dict[str, Any]:
+        return self.last_indicators
+
 # ==========================================
 # 2. Money & Risk Management Modules
 # ==========================================
@@ -265,6 +362,8 @@ class OscarsGrindRiskManager(BaseRiskManager):
 # ==========================================
 
 def get_strategy(strategy_name: str, config: Optional[Dict[str, Any]] = None) -> BaseStrategy:
+    if strategy_name == "technical_indicators":
+        return TechnicalIndicatorStrategy(config)
     return HybridMLStrategy(config)
 
 def get_risk_manager(money_management: str, base_stake: float, config: Optional[Dict[str, Any]] = None) -> BaseRiskManager:

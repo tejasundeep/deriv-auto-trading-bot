@@ -8,10 +8,11 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
+import config as app_config
 
 
 class SequenceFeatureBuilder:
-    """Builds candle-structure sequence features from OHLC candles."""
+    """Builds candle-structure sequence features from OHLC candles using fast NumPy vectorization."""
 
     def __init__(self, window_size: int = 30):
         self.window_size = int(window_size)
@@ -23,137 +24,106 @@ class SequenceFeatureBuilder:
                 np.empty((0,), dtype=float),
             )
 
-        seq_samples: List[np.ndarray] = []
-        labels: List[float] = []
-        normalized_candles = [self._normalize_candle(c) for c in candles]
+        opens = np.array([c.get("open", c.get("close", 0.0)) for c in candles], dtype=float)
+        closes = np.array([c.get("close", c.get("open", 0.0)) for c in candles], dtype=float)
+        highs = np.array([c.get("high", o) for c, o in zip(candles, opens)], dtype=float)
+        lows = np.array([c.get("low", o) for c, o in zip(candles, opens)], dtype=float)
 
-        for end in range(self.window_size, len(normalized_candles) - 1):
-            window = normalized_candles[end - self.window_size : end]
-            next_candle = normalized_candles[end + 1]
-            current_close = float(normalized_candles[end]["close"])
-            next_close = float(next_candle["close"])
-            seq_samples.append(self.extract_sequence(window))
-            labels.append(1.0 if next_close > current_close else 0.0)
+        rng = np.maximum(highs - lows, 1e-8)
+        body = closes - opens
+        upper_wick = highs - np.maximum(opens, closes)
+        lower_wick = np.minimum(opens, closes) - lows
+        
+        body_ratio = np.abs(body) / rng
+        upper_wick_ratio = upper_wick / rng
+        lower_wick_ratio = lower_wick / rng
+        open_position = (opens - lows) / rng
+        close_position = (closes - lows) / rng
 
-        return (
-            np.asarray(seq_samples, dtype=float),
-            np.asarray(labels, dtype=float),
-        )
+        from numpy.lib.stride_tricks import sliding_window_view
 
-    def _normalize_candle(self, candle: Dict[str, Any]) -> Dict[str, float]:
-        open_p = float(candle.get("open", candle.get("close", 0.0)))
-        high_p = float(candle.get("high", open_p))
-        low_p = float(candle.get("low", open_p))
-        close_p = float(candle.get("close", open_p))
-        rng = max(high_p - low_p, 1e-8)
-        body = close_p - open_p
-        upper_wick = high_p - max(open_p, close_p)
-        lower_wick = min(open_p, close_p) - low_p
-        open_position = (open_p - low_p) / rng
-        close_position = (close_p - low_p) / rng
-        return {
-            "open": open_p,
-            "high": high_p,
-            "low": low_p,
-            "close": close_p,
-            "body": body,
-            "upper_wick": upper_wick,
-            "lower_wick": lower_wick,
-            "body_ratio": abs(body) / rng,
-            "upper_wick_ratio": upper_wick / rng,
-            "lower_wick_ratio": lower_wick / rng,
-            "open_position": open_position,
-            "close_position": close_position,
-            "range": rng,
-        }
+        # Generate sliding windows of size self.window_size
+        # Valid ends are self.window_size to len(candles) - 1 (exclusive of the very last element to allow +1 target)
+        valid_ends = np.arange(self.window_size, len(candles) - 1)
+        current_closes = closes[valid_ends]
+        next_closes = closes[valid_ends + 1]
+        labels = (next_closes > current_closes).astype(float)
+
+        # Windows end precisely at valid_ends - meaning they contain indices from valid_ends - window_size to valid_ends
+        # `sliding_window_view` returns all possible windows. 
+        # The window ending at index `w` is at index `w - window_size + 1` in the view.
+        # Since we want windows ending at `self.window_size` up to `len(candles) - 2`,
+        # these correspond to indices 1 up to len(candles) - self.window_size - 1 in the sliding view.
+        
+        w_closes = sliding_window_view(closes, self.window_size)[1 : len(candles) - self.window_size]
+        w_opens = sliding_window_view(opens, self.window_size)[1 : len(candles) - self.window_size]
+        w_highs = sliding_window_view(highs, self.window_size)[1 : len(candles) - self.window_size]
+        w_lows = sliding_window_view(lows, self.window_size)[1 : len(candles) - self.window_size]
+        
+        w_body_ratio = sliding_window_view(body_ratio, self.window_size)[1 : len(candles) - self.window_size]
+        w_upper_ratio = sliding_window_view(upper_wick_ratio, self.window_size)[1 : len(candles) - self.window_size]
+        w_lower_ratio = sliding_window_view(lower_wick_ratio, self.window_size)[1 : len(candles) - self.window_size]
+        w_open_pos = sliding_window_view(open_position, self.window_size)[1 : len(candles) - self.window_size]
+        w_close_pos = sliding_window_view(close_position, self.window_size)[1 : len(candles) - self.window_size]
+        w_rng = sliding_window_view(rng, self.window_size)[1 : len(candles) - self.window_size]
+
+        firsts = w_closes[:, 0].copy()
+        firsts[firsts == 0.0] = 1.0
+        
+        means = w_closes.mean(axis=1, keepdims=True)
+        stds = w_closes.std(axis=1, keepdims=True)
+        stds[stds < 1e-8] = 1e-8
+        
+        diffs = np.diff(w_closes, axis=1)
+        denom = w_closes[:, :-1].copy()
+        denom[denom == 0.0] = 1.0
+        ret_part = diffs / denom
+        returns = np.zeros_like(w_closes)
+        returns[:, 1:] = ret_part
+        
+        body_arr = np.zeros_like(w_closes)
+        body_arr[:, 1:] = w_closes[:, 1:] - w_closes[:, :-1]
+        
+        range_span = w_closes.max(axis=1, keepdims=True) - w_closes.min(axis=1, keepdims=True)
+        mean_denom = means.copy()
+        mean_denom[mean_denom == 0.0] = 1.0
+        
+        abs_window = np.abs(w_closes)
+        abs_window[abs_window < 1e-8] = 1.0
+        
+        firsts_expanded = firsts[:, None]
+        
+        seq_samples = np.stack([
+            (w_opens / firsts_expanded) - 1.0,
+            (w_highs / firsts_expanded) - 1.0,
+            (w_lows / firsts_expanded) - 1.0,
+            (w_closes / firsts_expanded) - 1.0,
+            (w_closes / firsts_expanded) - 1.0,
+            returns,
+            (w_closes - means) / stds,
+            body_arr / abs_window,
+            np.broadcast_to(range_span / mean_denom, w_closes.shape),
+            w_body_ratio,
+            w_upper_ratio,
+            w_lower_ratio,
+            w_open_pos,
+            w_close_pos,
+            w_rng / mean_denom
+        ], axis=2)
+        
+        return seq_samples, labels
 
     def extract_sequence(self, window: List[Dict[str, float]]) -> np.ndarray:
-        prepared: List[Dict[str, float]] = []
-        for candle in window:
-            open_p = float(candle.get("open", candle.get("close", 0.0)))
-            high_p = float(candle.get("high", open_p))
-            low_p = float(candle.get("low", open_p))
-            close_p = float(candle.get("close", open_p))
-            rng = max(high_p - low_p, 1e-8)
-            body = close_p - open_p
-            upper_wick = high_p - max(open_p, close_p)
-            lower_wick = min(open_p, close_p) - low_p
-            prepared.append(
-                {
-                    "open": open_p,
-                    "high": high_p,
-                    "low": low_p,
-                    "close": close_p,
-                    "body_ratio": abs(body) / rng,
-                    "upper_wick_ratio": upper_wick / rng,
-                    "lower_wick_ratio": lower_wick / rng,
-                    "open_position": (open_p - low_p) / rng,
-                    "close_position": (close_p - low_p) / rng,
-                    "range": rng,
-                }
-            )
+        # Fallback for live single-window extraction
+        samples, _ = self.build_dataset(window + [{"close": window[-1].get("close", 0.0)}, {"close": 0.0}])
+        if len(samples) > 0:
+            return samples[0]
+        return np.zeros((self.window_size, 15), dtype=float)
 
-        open_ = np.array([c["open"] for c in prepared], dtype=float)
-        high_ = np.array([c["high"] for c in prepared], dtype=float)
-        low_ = np.array([c["low"] for c in prepared], dtype=float)
-        close_ = np.array([c["close"] for c in prepared], dtype=float)
-        body_ratio = np.array([c["body_ratio"] for c in prepared], dtype=float)
-        upper_ratio = np.array([c["upper_wick_ratio"] for c in prepared], dtype=float)
-        lower_ratio = np.array([c["lower_wick_ratio"] for c in prepared], dtype=float)
-        open_pos = np.array([c["open_position"] for c in prepared], dtype=float)
-        close_pos = np.array([c["close_position"] for c in prepared], dtype=float)
-        rng = np.array([c["range"] for c in prepared], dtype=float)
-
-        window_close = close_
-        window = np.asarray(window_close, dtype=float)
-        if window.size < self.window_size:
-            pad_count = self.window_size - window.size
-            pad_value = window[0] if window.size else 0.0
-            window = np.pad(window, (pad_count, 0), constant_values=pad_value)
-            open_ = np.pad(open_, (pad_count, 0), constant_values=open_[0] if open_.size else 0.0)
-            high_ = np.pad(high_, (pad_count, 0), constant_values=high_[0] if high_.size else 0.0)
-            low_ = np.pad(low_, (pad_count, 0), constant_values=low_[0] if low_.size else 0.0)
-            close_ = np.pad(close_, (pad_count, 0), constant_values=close_[0] if close_.size else 0.0)
-            body_ratio = np.pad(body_ratio, (pad_count, 0), constant_values=0.0)
-            upper_ratio = np.pad(upper_ratio, (pad_count, 0), constant_values=0.0)
-            lower_ratio = np.pad(lower_ratio, (pad_count, 0), constant_values=0.0)
-            open_pos = np.pad(open_pos, (pad_count, 0), constant_values=0.5)
-            close_pos = np.pad(close_pos, (pad_count, 0), constant_values=0.5)
-            rng = np.pad(rng, (pad_count, 0), constant_values=1.0)
-
-        last = float(window[-1])
-        first = float(window[0]) if window[0] != 0.0 else 1.0
-        mean = float(window.mean())
-        std = float(window.std())
-        std = std if std > 1e-8 else 1e-8
-
-        returns = np.zeros_like(window)
-        returns[1:] = np.diff(window) / np.where(window[:-1] == 0.0, 1.0, window[:-1])
-        body = window - np.concatenate(([window[0]], window[:-1]))
-        range_span = float(window.max() - window.min())
-        return np.stack(
-            [
-                (open_ / first) - 1.0,
-                (high_ / first) - 1.0,
-                (low_ / first) - 1.0,
-                (close_ / first) - 1.0,
-                (window / first) - 1.0,
-                returns,
-                (window - mean) / std,
-                body / np.where(np.abs(window) < 1e-8, 1.0, np.abs(window)),
-                np.full(window.shape, range_span / mean if mean != 0.0 else 0.0),
-                body_ratio,
-                upper_ratio,
-                lower_ratio,
-                open_pos,
-                close_pos,
-                rng / (mean if mean != 0.0 else 1.0),
-            ],
-            axis=1,
-        )
 
 
 class SequenceHybridNet(nn.Module):
+    """Fast, purely convolutional and GRU-based sequence model for rapid training."""
     def __init__(
         self,
         sequence_input_dim: int,
@@ -161,43 +131,41 @@ class SequenceHybridNet(nn.Module):
         dropout: float = 0.2,
     ):
         super().__init__()
-        self.input_proj = nn.Linear(sequence_input_dim, hidden_units)
         self.conv = nn.Sequential(
-            nn.Conv1d(hidden_units, hidden_units, kernel_size=3, padding=1),
+            nn.Conv1d(sequence_input_dim, hidden_units, kernel_size=3, padding=1),
+            nn.BatchNorm1d(hidden_units),
             nn.GELU(),
             nn.Conv1d(hidden_units, hidden_units, kernel_size=5, padding=2),
+            nn.BatchNorm1d(hidden_units),
             nn.GELU(),
             nn.Dropout(dropout),
         )
-        self.positional_scale = nn.Parameter(torch.ones(1, 1, hidden_units))
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=hidden_units,
-            nhead=max(1, hidden_units // 16),
-            dim_feedforward=hidden_units * 2,
-            dropout=dropout,
+        self.gru = nn.GRU(
+            input_size=hidden_units,
+            hidden_size=hidden_units // 2,
+            num_layers=1,
             batch_first=True,
-            activation="gelu",
-            norm_first=True,
-        )
-        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=2)
-        self.attention = nn.Sequential(
-            nn.Linear(hidden_units, hidden_units // 2),
-            nn.ReLU(),
-            nn.Dropout(dropout),
+            bidirectional=True
         )
         self.combined = nn.Sequential(
-            nn.Linear(hidden_units // 2, 64),
-            nn.ReLU(),
+            nn.Linear(hidden_units, 32),
+            nn.GELU(),
             nn.Dropout(dropout),
-            nn.Linear(64, 1),
+            nn.Linear(32, 1),
         )
 
     def forward(self, seq: torch.Tensor) -> torch.Tensor:
-        x = self.input_proj(seq)
-        x = x * self.positional_scale
-        x = self.conv(x.transpose(1, 2)).transpose(1, 2)
-        x = self.transformer(x)
-        seq_repr = self.attention(x.mean(dim=1))
+        # seq shape: (batch_size, seq_len, sequence_input_dim)
+        x = seq.transpose(1, 2)
+        x = self.conv(x)
+        x = x.transpose(1, 2)
+        
+        # GRU returns output and hidden state
+        x, _ = self.gru(x)
+        
+        # Global Average Pooling
+        seq_repr = x.mean(dim=1)
+        
         return self.combined(seq_repr)
 
 
@@ -335,6 +303,10 @@ class SimpleBinarySequenceModel:
         return {"accuracy": round(accuracy, 4), "loss": round(loss, 6)}
 
     def save(self, path: str) -> None:
+        if path and "eurusd_sequence_model" in os.path.basename(path):
+            # Safeguard: Never overwrite pre-trained EUR/USD model weights
+            return
+
         if not self.fitted or self.model is None:
             raise ValueError("Model is not trained yet.")
 
@@ -368,7 +340,18 @@ class SimpleBinarySequenceModel:
             return None
 
         try:
-            data = torch.load(path, map_location="cpu", weights_only=False)
+            if path.endswith(".pkl"):
+                import pickle
+                with open(path, "rb") as f:
+                    obj = pickle.load(f)
+                if isinstance(obj, cls):
+                    return obj
+                elif isinstance(obj, dict):
+                    data = obj
+                else:
+                    raise ValueError(f"Unsupported pickle object type: {type(obj)}")
+            else:
+                data = torch.load(path, map_location="cpu", weights_only=False)
             model = cls(
                 hidden_units=int(data.get("hidden_units", 48)),
                 learning_rate=float(data.get("learning_rate", 0.001)),
@@ -437,12 +420,12 @@ class HybridMLStrategy:
         self.buy_threshold = float(self.config.get("ml_buy_threshold", 0.58))
         self.sell_threshold = float(self.config.get("ml_sell_threshold", 0.42))
         self.retrain_every = int(self.config.get("ml_retrain_every", 60))
-        self.hidden_units = int(self.config.get("ml_hidden_units", 24))
+        self.hidden_units = int(self.config.get("ml_hidden_units", 64))
         self.learning_rate = float(self.config.get("ml_learning_rate", 0.01))
         self.epochs = int(self.config.get("ml_epochs", 120))
         self.batch_size = int(self.config.get("ml_batch_size", 64))
         self.l2_penalty = float(self.config.get("ml_l2_penalty", 1e-4))
-        self.model_path = self.config.get("ml_model_path", os.path.join("models", "deriv_sequence_model.pt"))
+        self.model_path = self.config.get("ml_model_path", app_config.DEFAULT_ML_MODEL_PATH)
         self.max_patterns = int(self.config.get("ml_max_patterns", 12))
         self.min_pattern_samples = int(self.config.get("ml_min_pattern_samples", 50))
         self.pattern_min_hit_rate = float(self.config.get("ml_pattern_min_hit_rate", 0.62))
@@ -605,7 +588,18 @@ class HybridMLStrategy:
     def _cluster_patterns(self, X_seq: np.ndarray, y: np.ndarray, regime: str = "all") -> List[PatternProfile]:
         if X_seq.size == 0:
             return []
-        flat = self._pattern_feature_matrix(X_seq)
+            
+        max_samples = 15000
+        if len(X_seq) > max_samples:
+            rng_sub = np.random.default_rng(42)
+            indices = rng_sub.choice(len(X_seq), size=max_samples, replace=False)
+            X_seq_sub = X_seq[indices]
+            y_sub = y[indices]
+        else:
+            X_seq_sub = X_seq
+            y_sub = y
+            
+        flat = self._pattern_feature_matrix(X_seq_sub)
         k = min(self.max_patterns, max(2, int(math.sqrt(len(flat)))))
         k = min(k, len(flat))
         if k < 2:
@@ -614,8 +608,11 @@ class HybridMLStrategy:
         rng = np.random.default_rng(42)
         centers = flat[rng.choice(len(flat), size=k, replace=False)]
         labels = np.zeros(len(flat), dtype=int)
+        
         for _ in range(25):
-            distances = np.linalg.norm(flat[:, None, :] - centers[None, :, :], axis=2)
+            distances = np.zeros((len(flat), k), dtype=float)
+            for idx in range(k):
+                distances[:, idx] = np.sum((flat - centers[idx])**2, axis=1)
             new_labels = distances.argmin(axis=1)
             if np.array_equal(new_labels, labels):
                 break
@@ -634,7 +631,7 @@ class HybridMLStrategy:
             members = np.where(labels == idx)[0]
             if len(members) < self.min_pattern_samples:
                 continue
-            member_labels = y[members]
+            member_labels = y_sub[members]
             hit_rate = float(member_labels.mean())
             support = len(members) / max(1, len(flat))
             confidence = min(1.0, (hit_rate * 0.7) + (support * 0.3))
@@ -807,11 +804,12 @@ class HybridMLStrategy:
             "patterns": [p.__dict__ for p in self.patterns],
         }
 
-    def analyze(self, ticks: List[float]) -> Optional[str]:
-        decision = self.evaluate(ticks)
-        return decision.signal
+    def analyze(self, data: List[Any], timeframe: int = 1) -> Tuple[Optional[str], Optional[int]]:
+        decision = self.evaluate(data)
+        return decision.signal, None
 
-    def evaluate(self, ticks: List[float]) -> MLDecision:
+    def evaluate(self, data: List[Any]) -> MLDecision:
+        ticks = [float(d["close"]) if isinstance(d, dict) else float(d) for d in data]
         if len(ticks) < self.window_size + 2:
             self.last_status = "Awaiting history"
             return MLDecision(None, None, None, "N/A", self.last_status)

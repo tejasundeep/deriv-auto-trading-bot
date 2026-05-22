@@ -739,9 +739,19 @@
                             Market Visualization
                         </div>
                         <div style="display: flex; align-items: center; gap: 12px;">
+                            <select id="chart-timeframe" onchange="drawChart()" style="background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: var(--color-text); padding: 4px 8px; border-radius: 6px; font-size: 11px;">
+                                <option value="15" selected>15 Minutes</option>
+                                <option value="20">20 Minutes</option>
+                                <option value="25">25 Minutes</option>
+                                <option value="30">30 Minutes</option>
+                                <option value="40">40 Minutes</option>
+                                <option value="45">45 Minutes</option>
+                                <option value="50">50 Minutes</option>
+                                <option value="55">55 Minutes</option>
+                            </select>
                             <select id="chart-mode" onchange="drawChart()" style="width: auto; padding: 4px 10px; font-size: 12px; height: auto; background: rgba(255,255,255,0.05); border-radius: 6px; margin: 0; border: 1px solid var(--border-color); cursor: pointer; color: var(--color-text);">
-                                <option value="candles">1-Minute Candlesticks</option>
-                                <option value="line">Line (Closed Prices)</option>
+                                <option value="candles">Candlesticks</option>
+                                <option value="line">Line (Closes)</option>
                             </select>
                             <div id="chart-price" class="chart-price-display">--.----</div>
                         </div>
@@ -781,7 +791,7 @@
                 </div>
 
                 <!-- Backtest Results Registry -->
-                <div class="glass-card history-card">
+                <div class="glass-card history-card" style="display: none;">
                     <div class="chart-title">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--color-warning);"><path d="M3 3v18h18"></path><polyline points="7 14 11 10 14 13 21 6"></polyline></svg>
                         Backtest Results Registry
@@ -814,7 +824,7 @@
                 </div>
 
                 <!-- Pattern Quality Registry -->
-                <div class="glass-card history-card">
+                <div class="glass-card history-card" style="display: none;">
                     <div class="chart-title">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--color-success);"><path d="M4 19V5"></path><path d="M4 19h16"></path><path d="M8 16l4-6 4 3 4-7"></path></svg>
                         Pattern Quality Registry
@@ -865,11 +875,7 @@
                             <div class="form-group">
                                 <label for="symbol">Symbol / Asset</label>
                                 <select id="symbol">
-                                    <option value="R_100">Volatility 100 Index</option>
-                                    <option value="R_75">Volatility 75 Index</option>
-                                    <option value="R_50">Volatility 50 Index</option>
-                                    <option value="R_25">Volatility 25 Index</option>
-                                    <option value="R_10">Volatility 10 Index</option>
+                                    <option value="frxEURUSD">EUR/USD Forex Pair</option>
                                 </select>
                             </div>
 
@@ -877,6 +883,7 @@
                             <div class="form-group">
                                 <label for="strategy">Trading Strategy</label>
                                 <select id="strategy" onchange="toggleStrategyParams(this.value)">
+                                    <option value="technical_indicators">Technical Indicators</option>
                                     <option value="ml_pattern_engine">ML Pattern Engine</option>
                                 </select>
                             </div>
@@ -899,11 +906,11 @@
                                 <input type="number" id="stake" min="0.35" step="0.1" value="1.0">
                             </div>
 
-                            <!-- Duration Input (Locked to 1-Minute) -->
+                            <!-- Dynamic Auto-Duration Indicator -->
                             <div class="form-group">
                                 <label>Contract Duration</label>
-                                <input type="text" value="1 Minute (Locked)" disabled style="cursor: not-allowed; background: rgba(255,255,255,0.02); opacity: 0.7;">
-                                <input type="hidden" id="duration" value="1">
+                                <input type="text" value="Auto-Matched to Signal (1m-55m)" disabled style="cursor: not-allowed; background: rgba(255,255,255,0.02); opacity: 0.7; color: var(--color-primary);">
+                                <input type="hidden" id="duration" value="auto">
                             </div>
 
                             <!-- Target Profit Input -->
@@ -952,15 +959,31 @@
                                 <input type="number" id="oscars_grind_target" min="0.1" step="0.1" value="1.0">
                             </div>
 
-                            <!-- ============================================== -->
+                            <!-- Technical Indicators Panel -->
+                            <div id="tech-control-panel" class="form-group-full tech-param" style="border: 1px solid rgba(16, 185, 129, 0.2); background: rgba(16, 185, 129, 0.04); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 12px;">
+                                <div>
+                                    <div style="font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--color-success);">Technical Engine Live Status</div>
+                                    <div style="font-size: 12px; color: var(--color-text-muted); margin-top: 4px;">Dynamic multi-timeframe indicator scanning.</div>
+                                </div>
+                                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 8px; font-size: 12px; color: var(--color-text-muted);">
+                                    <div><strong style="color: var(--color-text);">EMA 50:</strong> <span id="tech-ema50-text">--</span></div>
+                                    <div><strong style="color: var(--color-text);">EMA 200:</strong> <span id="tech-ema200-text">--</span></div>
+                                    <div><strong style="color: var(--color-text);">RSI (14):</strong> <span id="tech-rsi-text">--</span></div>
+                                    <div><strong style="color: var(--color-text);">MACD:</strong> <span id="tech-macd-text">--</span></div>
+                                    <div><strong style="color: var(--color-text);">Signal:</strong> <span id="tech-macdsig-text">--</span></div>
+                                    <div><strong style="color: var(--color-text);">ADX (14):</strong> <span id="tech-adx-text">--</span></div>
+                                    <div><strong style="color: var(--color-text);">ATR (14):</strong> <span id="tech-atr-text">--</span></div>
+                                </div>
+                            </div>
+
                             <!-- ML settings -->
-                            <div class="form-group-full" style="border: 1px solid rgba(59, 130, 246, 0.2); background: rgba(59, 130, 246, 0.04); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 12px;">
+                            <div id="ml-control-panel" class="form-group-full ml-param" style="border: 1px solid rgba(59, 130, 246, 0.2); background: rgba(59, 130, 246, 0.04); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 12px; display: none;">
                                 <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
                                     <div>
                                         <div style="font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--color-brand);">ML Control Panel</div>
-                                        <div style="font-size: 12px; color: var(--color-text-muted); margin-top: 4px;">SQLite-backed history, local training, pattern discovery, and walk-forward evaluation.</div>
+                                        <div style="font-size: 12px; color: var(--color-text-muted); margin-top: 4px;">Offline model weights (eurusd_sequence_model.pt) loaded dynamically.</div>
                                     </div>
-                                    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                                    <div style="display: none; gap: 8px; flex-wrap: wrap;">
                                         <button type="button" id="btn-train-ml" class="btn-secondary" style="margin-top: 0; width: auto;">Train Model Now</button>
                                         <button type="button" id="btn-backtest-ml" class="btn-secondary" style="margin-top: 0; width: auto;">Run Backtest</button>
                                         <button type="button" id="btn-reset-ml-registry" class="btn-secondary" style="margin-top: 0; width: auto;">Reset Registries</button>
@@ -968,16 +991,16 @@
                                 </div>
                                 <div id="ml-summary" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; font-size: 12px; color: var(--color-text-muted);">
                                     <div><strong style="color: var(--color-text);">Status:</strong> <span id="ml-status-text">Awaiting model data</span></div>
-                                    <div><strong style="color: var(--color-text);">Backtest:</strong> <span id="ml-backtest-text">Not run yet</span></div>
-                                    <div><strong style="color: var(--color-text);">Samples:</strong> <span id="ml-sample-text">0</span></div>
-                                    <div><strong style="color: var(--color-text);">Patterns:</strong> <span id="ml-pattern-count-text">0</span></div>
+                                    <div style="display: none;"><strong style="color: var(--color-text);">Backtest:</strong> <span id="ml-backtest-text">Not run yet</span></div>
+                                    <div style="display: none;"><strong style="color: var(--color-text);">Samples:</strong> <span id="ml-sample-text">0</span></div>
+                                    <div style="display: none;"><strong style="color: var(--color-text);">Patterns:</strong> <span id="ml-pattern-count-text">0</span></div>
                                     <div><strong style="color: var(--color-text);">Loaded:</strong> <span id="ml-loaded-text">No</span></div>
-                                    <div><strong style="color: var(--color-text);">Training:</strong> <span id="ml-training-text">Idle</span></div>
-                                    <div><strong style="color: var(--color-text);">Live Learning:</strong> <span id="ml-live-learning-text">No</span></div>
+                                    <div style="display: none;"><strong style="color: var(--color-text);">Training:</strong> <span id="ml-training-text">Idle</span></div>
+                                    <div style="display: none;"><strong style="color: var(--color-text);">Live Learning:</strong> <span id="ml-live-learning-text">No</span></div>
                                     <div><strong style="color: var(--color-text);">Trading Enabled:</strong> <span id="ml-trading-enabled-text">No</span></div>
-                                    <div><strong style="color: var(--color-text);">Candle Mix:</strong> <span id="ml-candle-mix-text">Awaiting candles</span></div>
-                                    <div><strong style="color: var(--color-text);">Bias Heat:</strong> <span id="ml-bias-heat-text">0.00</span></div>
-                                    <div><strong style="color: var(--color-text);">Wick Imbalance:</strong> <span id="ml-wick-imbalance-text">0.00</span></div>
+                                    <div style="display: none;"><strong style="color: var(--color-text);">Candle Mix:</strong> <span id="ml-candle-mix-text">Awaiting candles</span></div>
+                                    <div style="display: none;"><strong style="color: var(--color-text);">Bias Heat:</strong> <span id="ml-bias-heat-text">0.00</span></div>
+                                    <div style="display: none;"><strong style="color: var(--color-text);">Wick Imbalance:</strong> <span id="ml-wick-imbalance-text">0.00</span></div>
                                     <div><strong style="color: var(--color-text);">Regime:</strong> <span id="ml-regime-text">Neutral</span></div>
                                     <div>
                                         <strong style="color: var(--color-text);">Confidence Meter:</strong>
@@ -986,14 +1009,14 @@
                                         </div>
                                     </div>
                                 </div>
-                                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px;">
+                                <div style="display: none;">
                                     <button type="button" id="btn-export-candles" class="btn-secondary" style="margin-top: 0;">Export Candles CSV</button>
                                     <button type="button" id="btn-export-trades" class="btn-secondary" style="margin-top: 0;">Export Trades CSV</button>
                                     <button type="button" id="btn-import-candles" class="btn-secondary" style="margin-top: 0;">Import Candles CSV</button>
                                     <button type="button" id="btn-import-trades" class="btn-secondary" style="margin-top: 0;">Import Trades CSV</button>
-                                    <button type="button" id="btn-reset-ml" class="btn-secondary" style="margin-top: 0;">Reset ML Checkpoint</button>
+                                    <button type="button" id="btn-reset-ml" class="btn-secondary" style="display: none; margin-top: 0;">Reset ML Checkpoint</button>
                                 </div>
-                                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px;">
+                                <div style="display: none;">
                                     <div class="form-group" style="gap: 4px;">
                                         <label for="candles-csv-file" style="margin: 0;">Candles CSV File</label>
                                         <input type="file" id="candles-csv-file" accept=".csv" />
@@ -1223,9 +1246,13 @@
             params.forEach(el => el.style.display = "none");
             const mlParams = document.querySelectorAll(".ml-param");
             mlParams.forEach(el => el.style.display = "none");
+            const techParams = document.querySelectorAll(".tech-param");
+            techParams.forEach(el => el.style.display = "none");
             
             if (strategy === "ml_pattern_engine") {
-                document.querySelectorAll(".ml-param").forEach(el => el.style.display = "block");
+                mlParams.forEach(el => el.style.display = "flex");
+            } else if (strategy === "technical_indicators") {
+                techParams.forEach(el => el.style.display = "flex");
             }
         }
 
@@ -1434,6 +1461,16 @@
                 document.getElementById("ml-sample-text").innerText = state.ml_training.samples ?? 0;
                 document.getElementById("ml-pattern-count-text").innerText = state.ml_training.patterns ? state.ml_training.patterns.length : (state.ml_pattern_summary?.pattern_count ?? 0);
             }
+            
+            if (state.strategy_indicators) {
+                document.getElementById("tech-ema50-text").innerText = state.strategy_indicators.EMA50 ?? "--";
+                document.getElementById("tech-ema200-text").innerText = state.strategy_indicators.EMA200 ?? "--";
+                document.getElementById("tech-rsi-text").innerText = state.strategy_indicators.RSI ?? "--";
+                document.getElementById("tech-macd-text").innerText = state.strategy_indicators.MACD ?? "--";
+                document.getElementById("tech-macdsig-text").innerText = state.strategy_indicators.MACD_Signal ?? "--";
+                document.getElementById("tech-adx-text").innerText = state.strategy_indicators.ADX ?? "--";
+                document.getElementById("tech-atr-text").innerText = state.strategy_indicators.ATR ?? "--";
+            }
             const lifecycle = state.ml_lifecycle || {};
             document.getElementById("ml-loaded-text").innerText = lifecycle.loaded ? "Yes" : "No";
             document.getElementById("ml-training-text").innerText = lifecycle.training ? "Running" : "Idle";
@@ -1542,7 +1579,7 @@
             if (state.active_trade) {
                 activeHud.style.display = "flex";
                 document.getElementById("hud-contract-id").innerText = state.active_trade.contract_id;
-                document.getElementById("hud-symbol").innerText = state.active_trade.symbol;
+                document.getElementById("hud-symbol").innerText = state.active_trade.symbol === "frxEURUSD" ? "EUR/USD" : state.active_trade.symbol;
                 document.getElementById("hud-stake").innerText = `$${state.active_trade.stake.toFixed(2)}`;
                 
                 const dirBadge = document.getElementById("hud-direction");
@@ -1554,9 +1591,13 @@
                 profitHUD.innerText = (rawProfit >= 0 ? "+" : "") + `$${rawProfit.toFixed(2)}`;
                 profitHUD.className = rawProfit >= 0 ? "color-win" : "color-loss";
 
-                // Progress Bar (Dynamic 1-Minute Countdown)
+                // Progress Bar (Dynamic Countdown)
                 const isMinutes = state.settings.duration_unit === "m";
-                const totalSeconds = isMinutes ? (state.settings.duration * 60) : state.settings.duration;
+                // If duration is "auto" or undefined initially, default progress calculation won't work well until active_trade has stake/duration info,
+                // but the backend sends active_trade.duration inside active_trade? Wait, backend sends active_trade progress.
+                // Let's use the active_trade's duration if available, otherwise fallback.
+                const tradeDuration = state.active_trade.duration || 15;
+                const totalSeconds = isMinutes ? (tradeDuration * 60) : tradeDuration;
                 const currentProgress = state.active_trade.progress || 0;
                 const progressPct = Math.min((currentProgress / totalSeconds) * 100, 100);
                 document.getElementById("hud-progress-fill").style.width = `${progressPct}%`;
@@ -1566,11 +1607,13 @@
 
             // Draw Tick/Candle Chart
             if (state.candles && state.candles.length > 0) {
-                document.getElementById("chart-price").innerText = state.candles[state.candles.length - 1].close.toFixed(4);
+                const decimals = (state.symbol && state.symbol.includes("EURUSD")) ? 5 : 4;
+                document.getElementById("chart-price").innerText = state.candles[state.candles.length - 1].close.toFixed(decimals);
                 candles = state.candles; // Use real, pristine candle records directly from the backend
                 drawChart();
             } else if (state.ticks.length > 0) {
-                document.getElementById("chart-price").innerText = state.ticks[state.ticks.length - 1].toFixed(4);
+                const decimals = (state.symbol && state.symbol.includes("EURUSD")) ? 5 : 4;
+                document.getElementById("chart-price").innerText = state.ticks[state.ticks.length - 1].toFixed(decimals);
                 rebuildCandles(state.ticks, state.tick_epochs);
                 drawChart();
             }
@@ -1617,12 +1660,16 @@
                     row.appendChild(timeCell);
                     
                     const symbolCell = document.createElement("td");
-                    symbolCell.innerText = item.symbol.replace("R_", "Vol 100 Index"); // make user-friendly
-                    if (item.symbol.includes("R_100")) symbolCell.innerText = "Volatility 100";
-                    if (item.symbol.includes("R_75")) symbolCell.innerText = "Volatility 75";
-                    if (item.symbol.includes("R_50")) symbolCell.innerText = "Volatility 50";
-                    if (item.symbol.includes("R_25")) symbolCell.innerText = "Volatility 25";
-                    if (item.symbol.includes("R_10")) symbolCell.innerText = "Volatility 10";
+                    if (item.symbol === "frxEURUSD") {
+                        symbolCell.innerText = "EUR/USD";
+                    } else {
+                        symbolCell.innerText = item.symbol.replace("R_", "Vol 100 Index"); // make user-friendly
+                        if (item.symbol.includes("R_100")) symbolCell.innerText = "Volatility 100";
+                        if (item.symbol.includes("R_75")) symbolCell.innerText = "Volatility 75";
+                        if (item.symbol.includes("R_50")) symbolCell.innerText = "Volatility 50";
+                        if (item.symbol.includes("R_25")) symbolCell.innerText = "Volatility 25";
+                        if (item.symbol.includes("R_10")) symbolCell.innerText = "Volatility 10";
+                    }
                     row.appendChild(symbolCell);
                     
                     const directionCell = document.createElement("td");
@@ -1630,7 +1677,8 @@
                     row.appendChild(directionCell);
                     
                     const spotsCell = document.createElement("td");
-                    spotsCell.innerText = `${item.entry_spot ? item.entry_spot.toFixed(2) : '--'} → ${item.exit_spot ? item.exit_spot.toFixed(2) : '--'}`;
+                    const spotsDec = (item.symbol && item.symbol.includes("EURUSD")) ? 5 : 2;
+                    spotsCell.innerText = `${item.entry_spot ? item.entry_spot.toFixed(spotsDec) : '--'} → ${item.exit_spot ? item.exit_spot.toFixed(spotsDec) : '--'}`;
                     row.appendChild(spotsCell);
 
                     const stakeCell = document.createElement("td");
@@ -1776,6 +1824,28 @@
         // Renders OHLC Candlestick blocks with glowing gradients
         function drawCandlestickChart() {
             if (!candles || candles.length === 0) return;
+
+            let displayCandles = candles;
+            const tfEl = document.getElementById("chart-timeframe");
+            const timeframeMinutes = tfEl ? parseInt(tfEl.value) : 1;
+            
+            if (timeframeMinutes > 1) {
+                let chunks = [];
+                // Group from the end backwards to keep latest candle perfectly aligned
+                for (let i = candles.length; i > 0; i -= timeframeMinutes) {
+                    let start = Math.max(0, i - timeframeMinutes);
+                    let group = candles.slice(start, i);
+                    if (group.length === 0) continue;
+                    chunks.push({
+                        open: group[0].open,
+                        high: Math.max(...group.map(c => c.high)),
+                        low: Math.min(...group.map(c => c.low)),
+                        close: group[group.length - 1].close,
+                        epoch: group[0].epoch
+                    });
+                }
+                displayCandles = chunks.reverse();
+            }
             
             const w = canvas.width / window.devicePixelRatio;
             const h = canvas.height / window.devicePixelRatio;
@@ -1805,7 +1875,7 @@
  
             // Capping visible candles count to maximum 40 for beautiful scaling and detail spacing
             const maxVisible = 40;
-            const displayCandles = candles.slice(-maxVisible);
+            displayCandles = displayCandles.slice(-maxVisible);
             const slotsCount = Math.max(displayCandles.length, 30);
             
             // Compute scaling bounds over displayed candles only

@@ -84,3 +84,5 @@ Desktop.ini
 models/*.pt
 data/*sqlite3*
 *.csv
+checkpoints/
+reports/

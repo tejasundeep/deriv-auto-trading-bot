@@ -1,14 +1,17 @@
 import argparse
 import csv
 import json
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
+from tqdm import tqdm
+
 from ml_engine import HybridMLStrategy
 
 
-DEFAULT_CSV = Path.home() / "Downloads" / "EUR-USD.csv"
+DEFAULT_CSV = Path(r"C:\Users\Teja\Desktop\po_bot\EURUSD_M1_ALL.csv")
 DEFAULT_MODEL = Path("models") / "eurusd_sequence_model.pt"
 DEFAULT_SUMMARY = Path("reports") / "eurusd_summary.json"
 DEFAULT_CHECKPOINT = Path("checkpoints") / "eurusd_resume.json"
@@ -102,6 +105,17 @@ def _parse_dt(date_str: str, time_str: str) -> int:
     return int(dt.timestamp())
 
 
+def _parse_timestamp(value: str) -> int:
+    cleaned = value.strip()
+    if not cleaned:
+        raise ValueError("Empty timestamp")
+    try:
+        dt = datetime.fromisoformat(cleaned.replace("Z", "+00:00"))
+    except ValueError:
+        dt = datetime.strptime(cleaned, "%Y.%m.%d %H:%M")
+    return int(dt.timestamp())
+
+
 def iter_candles(csv_path: Path, stride: int = 1) -> Iterable[Dict[str, Any]]:
     with csv_path.open("r", newline="", encoding="utf-8-sig") as fh:
         reader = csv.reader(fh)
@@ -111,14 +125,25 @@ def iter_candles(csv_path: Path, stride: int = 1) -> Iterable[Dict[str, Any]]:
             if stride > 1 and (idx % stride) != 0:
                 continue
             try:
-                date_str, time_str = row[0].strip(), row[1].strip()
-                candle = {
-                    "epoch": _parse_dt(date_str, time_str),
-                    "open": float(row[2]),
-                    "high": float(row[3]),
-                    "low": float(row[4]),
-                    "close": float(row[5]),
-                }
+                if idx == 0 and row[0].strip().lower() in {"timestamp", "date", "time"}:
+                    continue
+                if len(row) >= 6 and "-" in row[0] and ":" in row[0] and row[0].count("-") >= 2:
+                    candle = {
+                        "epoch": _parse_timestamp(row[0]),
+                        "open": float(row[1]),
+                        "high": float(row[2]),
+                        "low": float(row[3]),
+                        "close": float(row[4]),
+                    }
+                else:
+                    date_str, time_str = row[0].strip(), row[1].strip()
+                    candle = {
+                        "epoch": _parse_dt(date_str, time_str),
+                        "open": float(row[2]),
+                        "high": float(row[3]),
+                        "low": float(row[4]),
+                        "close": float(row[5]),
+                    }
                 yield candle
             except Exception:
                 continue
@@ -183,6 +208,7 @@ def train_chunked(
     last_result: Dict[str, Any] = {"status": "no_data", "samples": 0}
     total_samples = 0
     chunk_count = 0
+    started_at = time.time()
     resume_state = load_checkpoint(checkpoint_path) if resume else {}
     resume_from_chunk = int(resume_state.get("chunk_count", 0)) if resume_state else 0
     if resume and resume_state:
@@ -198,15 +224,22 @@ def train_chunked(
         strategy.model.reset()
         strategy.patterns = []
 
+    print("[phase 1/2] Streaming training across the full CSV in chunks...")
+    
+    total_chunks = (total_rows_hint // chunk_size) + 1 if total_rows_hint else None
+    pbar = tqdm(total=total_chunks, desc="Training", initial=resume_from_chunk)
+
     for chunk in chunked_candles(csv_path, chunk_size=chunk_size, stride=stride):
         chunk_count += 1
         if chunk_count <= resume_from_chunk:
             continue
         if len(chunk) < strategy.min_samples:
+            pbar.update(1)
             continue
 
         X_seq, y = strategy.feature_builder.build_dataset(chunk)
         if X_seq.size == 0 or y.size == 0:
+            pbar.update(1)
             continue
 
         if not strategy.model.fitted:
@@ -224,14 +257,9 @@ def train_chunked(
             }
 
         total_samples += int(last_result.get("samples", 0))
-        percent = ""
-        if total_rows_hint:
-            processed_estimate = min(total_rows_hint, chunk_count * chunk_size)
-            percent = f" | progress={min(100.0, (processed_estimate / total_rows_hint) * 100):.2f}%"
-        print(
-            f"[chunk {chunk_count}] {last_result.get('status')} | "
-            f"samples={last_result.get('samples', 0)} | total={total_samples:,}{percent}"
-        )
+        pbar.set_postfix({"samples": total_samples, "acc": last_result.get("metrics", {}).get("accuracy", 0)})
+        pbar.update(1)
+
         save_checkpoint(
             checkpoint_path,
             {
@@ -244,6 +272,8 @@ def train_chunked(
                 "updated_at": datetime.now().isoformat(),
             },
         )
+        
+    pbar.close()
 
     if chunk_count == 0:
         return {"status": "no_chunks", "samples": 0}
@@ -254,6 +284,7 @@ def train_chunked(
         "metrics": last_result.get("metrics", {}),
         "patterns": last_result.get("patterns", []),
         "chunk_count": chunk_count,
+        "elapsed_seconds": round(time.time() - started_at, 2),
     }
 
 
@@ -283,6 +314,7 @@ def walk_forward_backtest(
     model_hits = 0
     model_total = 0
     fold_idx = 0
+    started_at = time.time()
 
     start = 0
     while start + train_window + test_window <= len(candles):
@@ -314,6 +346,12 @@ def walk_forward_backtest(
             f"[walk-forward fold {fold_idx}] signals={fold_backtest.get('traded_signals', 0)} "
             f"| trade_acc={fold_backtest.get('trade_accuracy')} | coverage={fold_backtest.get('coverage')}"
         )
+        elapsed = max(1e-6, time.time() - started_at)
+        folds_left = max(0, (len(candles) - (fold_idx * (train_window + test_window))) // max(1, step))
+        eta_seconds = int((elapsed / fold_idx) * folds_left) if fold_idx else 0
+        print(
+            f"[walk-forward] elapsed={int(elapsed)}s | eta={eta_seconds // 3600:02d}:{(eta_seconds % 3600) // 60:02d}:{eta_seconds % 60:02d}"
+        )
 
         start += max(step, test_window)
 
@@ -324,6 +362,88 @@ def walk_forward_backtest(
         "status": "walk_forward_complete",
         "folds": len(fold_results),
         "total_samples": len(candles),
+        "traded_signals": traded,
+        "wins": wins,
+        "losses": losses,
+        "neutral": neutral,
+        "accuracy": accuracy,
+        "trade_accuracy": trade_accuracy,
+        "coverage": coverage,
+        "fold_results": fold_results,
+        "elapsed_seconds": round(time.time() - started_at, 2),
+    }
+
+
+def walk_forward_backtest_stream(
+    csv_path: Path,
+    base_config: Dict[str, Any],
+    train_window: int,
+    test_window: int,
+    step: int,
+    stride: int,
+) -> Dict[str, Any]:
+    window_size = train_window + test_window
+    buffer: List[Dict[str, Any]] = []
+    fold_results: List[Dict[str, Any]] = []
+    wins = losses = neutral = traded = 0
+    model_hits = 0
+    model_total = 0
+    fold_idx = 0
+    consumed = 0
+    carry = 0
+
+    print("[phase 2/2] Streaming walk-forward backtest across the full CSV...")
+
+    for candle in iter_candles(csv_path, stride=stride):
+        buffer.append(candle)
+        consumed += 1
+        if len(buffer) < window_size:
+            continue
+
+        carry += 1
+        if carry < max(1, step):
+            continue
+
+        fold_idx += 1
+        fold_slice = buffer[-window_size:]
+        train_slice = fold_slice[:train_window]
+        test_slice = fold_slice[train_window:]
+
+        fold_strategy = HybridMLStrategy(base_config)
+        fold_strategy.train(train_slice)
+        fold_backtest = fold_strategy.backtest(train_slice + test_slice, train_ratio=train_window / window_size)
+
+        wins += int(fold_backtest.get("wins", 0))
+        losses += int(fold_backtest.get("losses", 0))
+        neutral += int(fold_backtest.get("neutral", 0))
+        traded += int(fold_backtest.get("traded_signals", 0))
+        if fold_backtest.get("accuracy") is not None:
+            model_total += int(fold_backtest.get("total_samples", 0))
+            model_hits += int(round(float(fold_backtest["accuracy"]) * int(fold_backtest.get("total_samples", 0))))
+
+        fold_results.append(
+            {
+                "fold": fold_idx,
+                "train_samples": len(train_slice),
+                "test_samples": len(test_slice),
+                "backtest": fold_backtest,
+            }
+        )
+        print(
+            f"[walk-forward fold {fold_idx}] signals={fold_backtest.get('traded_signals', 0)} "
+            f"| trade_acc={fold_backtest.get('trade_accuracy')} | coverage={fold_backtest.get('coverage')}"
+        )
+
+        buffer = buffer[max(0, len(buffer) - test_window):]
+        carry = 0
+
+    accuracy = round(model_hits / model_total, 4) if model_total else None
+    trade_accuracy = round(wins / traded, 4) if traded else None
+    coverage = round(traded / model_total, 4) if model_total else 0.0
+    return {
+        "status": "walk_forward_complete",
+        "folds": len(fold_results),
+        "total_samples": consumed,
         "traded_signals": traded,
         "wins": wins,
         "losses": losses,
@@ -393,20 +513,32 @@ def main() -> int:
             total_rows_hint=estimated_rows,
         )
         loaded_count = int(train_result.get("samples", 0))
-        backtest_source = load_candles(csv_path, max_candles=args.history_candles, stride=args.stride)
+        backtest_source = None
 
     print(json.dumps(train_result, indent=2, default=str))
 
     print("[backtest] Running walk-forward backtest...")
-    wf_train_window = min(args.walk_train_window, max(1, len(backtest_source) - args.walk_test_window))
-    wf_test_window = min(args.walk_test_window, max(1, len(backtest_source) // 10))
-    backtest_result = walk_forward_backtest(
-        candles=backtest_source,
-        base_config=config,
-        train_window=wf_train_window,
-        test_window=wf_test_window,
-        step=args.walk_step,
-    )
+    if backtest_source is not None:
+        wf_train_window = min(args.walk_train_window, max(1, len(backtest_source) - args.walk_test_window))
+        wf_test_window = min(args.walk_test_window, max(1, len(backtest_source) // 10))
+        backtest_result = walk_forward_backtest(
+            candles=backtest_source,
+            base_config=config,
+            train_window=wf_train_window,
+            test_window=wf_test_window,
+            step=args.walk_step,
+        )
+    else:
+        wf_train_window = max(args.walk_train_window, args.window_size + 1)
+        wf_test_window = max(args.walk_test_window, args.window_size + 1)
+        backtest_result = walk_forward_backtest_stream(
+            csv_path=csv_path,
+            base_config=config,
+            train_window=wf_train_window,
+            test_window=wf_test_window,
+            step=max(1, args.walk_step),
+            stride=args.stride,
+        )
     print(json.dumps(backtest_result, indent=2, default=str))
 
     summary = {
@@ -426,6 +558,7 @@ def main() -> int:
     if checkpoint_path.exists():
         print(f"[resume] Checkpoint saved at: {checkpoint_path}")
     print(f"[save] Model checkpoint saved to: {args.model_path}")
+    print(f"[done] Total elapsed: {backtest_result.get('elapsed_seconds', 0)} seconds")
     return 0
 
 

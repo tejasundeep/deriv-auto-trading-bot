@@ -17,11 +17,15 @@ PORT = int(os.getenv("PORT", "8000"))
 HOST = os.getenv("HOST", "127.0.0.1")
 
 # Default Bot Parameters
-DEFAULT_SYMBOL = "R_100"          # Volatility 100 Index (Open 24/7, highly active)
+DEFAULT_SYMBOL = "frxEURUSD"      # EUR/USD Forex Pair
 DEFAULT_AMOUNT = 1.0              # Default $1.00 USD stake
-DEFAULT_DURATION = 1              # Default 1-minute contract duration
+DEFAULT_DURATION = "auto"         # Default auto-matched contract duration
 DEFAULT_DURATION_UNIT = "m"       # "m" for minutes duration unit
 DEFAULT_CURRENCY = "USD"          # Account currency (default USD)
 DEFAULT_TARGET_PROFIT = 10.0      # Stop trading when profit reaches +$10.00
 DEFAULT_STOP_LOSS = 10.0          # Stop trading when loss reaches -$10.00
-DEFAULT_STRATEGY = "ml_pattern_engine"    # Default strategy
+DEFAULT_STRATEGY = "technical_indicators"    # Default strategy
+
+# Default ML Model Configuration
+DEFAULT_ML_MODEL_PATH = "models/eurusd_sequence_model.pkl" if os.path.exists("models/eurusd_sequence_model.pkl") else "models/eurusd_sequence_model.pt"
+

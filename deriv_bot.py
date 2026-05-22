@@ -28,8 +28,8 @@ class DerivBot:
         self.settings: Dict[str, Any] = {
             "symbol": config.DEFAULT_SYMBOL,
             "stake": config.DEFAULT_AMOUNT,
-            "duration": 1,
-            "duration_unit": "m",
+            "duration": config.DEFAULT_DURATION,
+            "duration_unit": config.DEFAULT_DURATION_UNIT,
             "strategy": config.DEFAULT_STRATEGY,
             
             # Money Management Configurations
@@ -47,7 +47,7 @@ class DerivBot:
             "ml_buy_threshold": 0.65,
             "ml_sell_threshold": 0.35,
             "ml_retrain_every": 60,
-            "ml_hidden_units": 32,
+            "ml_hidden_units": 64,
             "ml_learning_rate": 0.005,
             "ml_epochs": 180,
             "ml_max_patterns": 12,
@@ -56,7 +56,7 @@ class DerivBot:
             "ml_pattern_top_k": 3,
             "ml_pattern_confidence_threshold": 0.55,
             "ml_regime_slices": 4,
-            "ml_model_path": "models/deriv_sequence_model.pt",
+            "ml_model_path": config.DEFAULT_ML_MODEL_PATH,
 
             "target_profit": config.DEFAULT_TARGET_PROFIT,
             "stop_loss": config.DEFAULT_STOP_LOSS,
@@ -74,7 +74,7 @@ class DerivBot:
         self.account_type: str = "Demo"
         self.account_mode: str = "Demo"
         
-        self.candles: List[Dict[str, Any]] = []    # Rolling 1-minute candles array
+        self.candles: List[Dict[str, Any]] = []    # Rolling 15-minute candles array
         self.ticks: List[float] = []               # Closed candle closing prices
         self.tick_epochs: List[int] = []           # Closed candle epochs
         self.history_closes: List[float] = []      # Full close-price history for ML training
@@ -161,6 +161,7 @@ class DerivBot:
             "tick_epochs": self.tick_epochs[-120:],
             "candles": self.candles[-60:],  # Send the last 60 actual OHLC candles for precise financial charts
             "history_closes": self.history_closes[-500:],  # ML history tail for diagnostics
+            "strategy_indicators": self.strategy.get_indicators() if hasattr(self.strategy, 'get_indicators') else {},
             "ml_training": self.last_ml_training,
             "ml_backtest": self.last_backtest,
             "backtest_runs": self.backtest_runs,
@@ -187,6 +188,11 @@ class DerivBot:
 
     async def update_settings(self, new_settings: Dict[str, Any]):
         """Safely updates trading settings on-the-fly."""
+        # Force locked EUR/USD symbol, model and hidden units
+        new_settings["symbol"] = "frxEURUSD"
+        new_settings["ml_model_path"] = config.DEFAULT_ML_MODEL_PATH
+        new_settings["ml_hidden_units"] = 64
+
         old_symbol = self.settings["symbol"]
         old_strategy = self.settings["strategy"]
         
@@ -213,9 +219,12 @@ class DerivBot:
             else:
                 self.settings[k] = v
 
-        # Enforce locked pure 1-minute trading
-        self.settings["duration"] = 1
+        # Enforce locked multi-timeframe auto trading, symbol, and model path
+        self.settings["duration"] = "auto"
         self.settings["duration_unit"] = "m"
+        self.settings["symbol"] = "frxEURUSD"
+        self.settings["ml_model_path"] = config.DEFAULT_ML_MODEL_PATH
+        self.settings["ml_hidden_units"] = 64
 
         # Dynamic instantiation of the strategy and risk manager with the updated settings dictionary
         self.risk_manager = get_risk_manager(
@@ -360,7 +369,7 @@ class DerivBot:
                         await self.ws.send(json.dumps({"proposal_open_contract": 1, "subscribe": 1}))
                         self.log("Feeds active. Ready to trade.")
                     
-                    # Initial symbol subscription to 1-minute candles
+                    # Initial symbol subscription to 15-minute candles
                     await self._subscribe_candles(self.settings["symbol"])
                     if isinstance(self.strategy, HybridMLStrategy):
                         self._schedule_ml_training()
@@ -403,6 +412,9 @@ class DerivBot:
     def _schedule_ml_training(self):
         """Kick off model training in the background when enough history exists."""
         if not isinstance(self.strategy, HybridMLStrategy):
+            return
+        # Safeguard: Do not auto-train the locked pre-trained EUR/USD model
+        if "eurusd_sequence_model" in str(self.settings.get("ml_model_path", "")):
             return
         if self.strategy.training_task and not self.strategy.training_task.done():
             return
@@ -483,6 +495,11 @@ class DerivBot:
         if not isinstance(self.strategy, HybridMLStrategy):
             return {"status": "ml_disabled"}
 
+        # Safeguard: Do not train the locked pre-trained EUR/USD model
+        if "eurusd_sequence_model" in str(self.settings.get("ml_model_path", "")):
+            self.log("[ML] Retraining is disabled for the pre-trained EUR/USD sequence model to protect weights.")
+            return {"status": "locked", "message": "Retraining disabled for locked EUR/USD model"}
+
         candles = self._ml_training_candles()
         min_samples = int(self.settings.get("ml_min_samples", 500))
         if len(candles) < min_samples:
@@ -541,6 +558,8 @@ class DerivBot:
 
     async def train_ml_now(self) -> Dict[str, Any]:
         """Public entry point for manual ML training."""
+        if "eurusd_sequence_model" in str(self.settings.get("ml_model_path", "")):
+            return {"status": "locked", "message": "Manual training is disabled for the pre-trained EUR/USD sequence model."}
         return await self._train_ml_strategy(reason="manual")
 
     async def run_backtest_now(self) -> Dict[str, Any]:
@@ -549,6 +568,8 @@ class DerivBot:
 
     async def reset_ml_model(self, remove_checkpoint: bool = True) -> Dict[str, Any]:
         """Public entry point to reset the ML model and optionally remove the checkpoint."""
+        if "eurusd_sequence_model" in str(self.settings.get("ml_model_path", "")):
+            return {"status": "locked", "message": "Resetting is disabled for the pre-trained EUR/USD sequence model."}
         if not isinstance(self.strategy, HybridMLStrategy):
             return {"status": "ml_disabled"}
 
@@ -560,6 +581,20 @@ class DerivBot:
 
     async def reset_ml_registry(self, remove_checkpoint: bool = True) -> Dict[str, Any]:
         """Clear ML backtest/model history and reset the current ML checkpoint."""
+        if "eurusd_sequence_model" in str(self.settings.get("ml_model_path", "")):
+            # Clear ML backtest/model history but DO NOT reset the model checkpoint!
+            cleared = await asyncio.to_thread(self.storage.clear_ml_history)
+            self.backtest_runs = []
+            reset_result = {"status": "registry_cleared_but_model_preserved", "message": "Registry cleared; pre-trained EUR/USD model preserved.", **cleared}
+            self.last_ml_training = reset_result
+            self.last_backtest = {}
+            self.log("[ML] Registry cleared | backtests_deleted=%s | model_runs_deleted=%s | model_checkpoint_preserved=True" % (
+                cleared.get("backtest_runs_deleted", 0),
+                cleared.get("model_runs_deleted", 0)
+            ))
+            self.trigger_ui_update()
+            return reset_result
+
         cleared = await asyncio.to_thread(self.storage.clear_ml_history)
         self.backtest_runs = []
 
@@ -611,8 +646,9 @@ class DerivBot:
 
 
     async def _subscribe_candles(self, symbol: str):
-        """Subscribes to live 1-minute candle history and updates for the specified asset."""
+        """Subscribes to live 1-minute base candle history and updates for the specified asset."""
         if self.ws:
+            # For 55m we need at least 30 * 55 = 1650 candles. 5000 1m candles gives >3 days of history.
             history_count = max(5000, int(self.settings.get("ml_history_candles", 5000)))
             self.log(f"Subscribing to 1-minute candle history updates for {symbol}...")
             await self.ws.send(json.dumps({
@@ -721,7 +757,7 @@ class DerivBot:
                                 if len(self.candles) > 150:
                                     self.candles.pop(0)
                                     
-                                # 3. Trigger 1-minute strategy check precisely on this candle-close transition!
+                                # 3. Trigger 15-minute strategy check precisely on this candle-close transition!
                                 self._schedule_ml_training()
                                 await self.process_candle_close()
                                 
@@ -781,14 +817,40 @@ class DerivBot:
         if isinstance(self.strategy, HybridMLStrategy):
             self._schedule_ml_training()
 
-        # Analyze candle closes (history_closes represents all closed candles)
-        signal_source = self.history_closes or self.ticks
-        signal = self.strategy.analyze(signal_source)
-        if signal in ["CALL", "PUT"]:
-            self.log(f"Strategy Close Signal Detected: [{signal}]. Executing 1-Minute contract buy...")
-            asyncio.create_task(self.execute_trade(signal))
+        # Analyze candle closes across requested custom timeframes
+        timeframes = [55, 50, 45, 40, 30, 25, 20, 15]
+        
+        if not self.candles:
+            return
 
-    async def execute_trade(self, direction: str):
+        for tf in timeframes:
+            multiplier = tf # Since base is 1-minute, multiplier is exactly the timeframe minutes
+            if len(self.candles) < multiplier * 30: # Need enough history for the strategy
+                continue
+            
+            # Resample OHLC candles from the end backwards
+            chunks = []
+            for i in range(len(self.candles), 0, -multiplier):
+                start = max(0, i - multiplier)
+                group = self.candles[start:i]
+                if not group: continue
+                chunks.append({
+                    "open": group[0]["open"],
+                    "high": max(c["high"] for c in group),
+                    "low": min(c["low"] for c in group),
+                    "close": group[-1]["close"],
+                    "epoch": group[0]["epoch"]
+                })
+            resampled = list(reversed(chunks))
+            
+            signal, custom_expiry = self.strategy.analyze(resampled, tf)
+            if signal in ["CALL", "PUT"]:
+                trade_duration = custom_expiry if custom_expiry is not None else tf
+                self.log(f"Strategy Signal Detected on {tf}m timeframe: [{signal}]. Executing {trade_duration}m contract...")
+                asyncio.create_task(self.execute_trade(signal, duration=trade_duration))
+                break # Only place one trade, prioritize highest timeframe
+
+    async def execute_trade(self, direction: str, duration: int = 15):
         """Executes a dual-step binary contract purchase (Proposal -> Buy)."""
         if self.placing_trade:
             return
@@ -806,8 +868,8 @@ class DerivBot:
                 "basis": "stake",
                 "contract_type": direction,
                 "currency": self.currency,
-                "duration": self.settings["duration"],
-                "duration_unit": self.settings["duration_unit"],
+                "duration": duration,
+                "duration_unit": "m",
                 "underlying_symbol": self.settings["symbol"]
             }
             
@@ -847,6 +909,7 @@ class DerivBot:
                 "symbol": self.settings["symbol"],
                 "status": "open",
                 "progress": 0,
+                "duration": duration,
                 "profit": 0.0,
                 "payout": 0.0,
                 "start_time": datetime.now().strftime("%H:%M:%S")
@@ -868,7 +931,7 @@ class DerivBot:
         self.active_trade["profit"] = float(poc["profit"])
         self.active_trade["payout"] = float(poc.get("payout", 0.0))
         
-        # Calculate progress in seconds (for 1-minute options)
+        # Calculate progress in seconds (dynamically handles duration)
         if "date_start" in poc and "date_expiry" in poc:
             total_dur = int(poc["date_expiry"]) - int(poc["date_start"])
             if total_dur > 0:
