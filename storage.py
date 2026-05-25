@@ -62,21 +62,6 @@ class BotStorage:
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     payload_json TEXT NOT NULL
                 );
-
-                CREATE TABLE IF NOT EXISTS backtest_runs (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    strategy_name TEXT NOT NULL,
-                    symbol TEXT NOT NULL,
-                    total_samples INTEGER NOT NULL,
-                    traded_signals INTEGER NOT NULL,
-                    wins INTEGER NOT NULL,
-                    losses INTEGER NOT NULL,
-                    neutral INTEGER NOT NULL,
-                    accuracy REAL,
-                    status TEXT NOT NULL,
-                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    payload_json TEXT NOT NULL
-                );
                 """
             )
 
@@ -269,98 +254,10 @@ class BotStorage:
             )
             conn.commit()
 
-    def save_backtest_run(self, strategy_name: str, symbol: str, summary: Dict[str, Any]) -> None:
-        with self._lock, self._connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO backtest_runs(
-                    strategy_name, symbol, total_samples, traded_signals, wins, losses, neutral, accuracy, status, payload_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    strategy_name,
-                    symbol,
-                    int(summary.get("total_samples", 0)),
-                    int(summary.get("traded_signals", 0)),
-                    int(summary.get("wins", 0)),
-                    int(summary.get("losses", 0)),
-                    int(summary.get("neutral", 0)),
-                    summary.get("accuracy"),
-                    str(summary.get("status", "ok")),
-                    json.dumps(summary, default=str),
-                ),
-            )
-            conn.commit()
-
-    def get_latest_backtest(self, strategy_name: str, symbol: str) -> Optional[Dict[str, Any]]:
-        with self._lock, self._connect() as conn:
-            row = conn.execute(
-                """
-                SELECT * FROM backtest_runs
-                WHERE strategy_name = ? AND symbol = ?
-                ORDER BY id DESC
-                LIMIT 1
-                """,
-                (strategy_name, symbol),
-            ).fetchone()
-        if not row:
-            return None
-        payload = json.loads(row["payload_json"])
-        payload["id"] = int(row["id"])
-        payload["created_at"] = row["created_at"]
-        return payload
-
-    def fetch_backtest_runs(self, strategy_name: Optional[str] = None, symbol: Optional[str] = None, limit: Optional[int] = 20) -> List[Dict[str, Any]]:
-        sql = """
-            SELECT id, strategy_name, symbol, total_samples, traded_signals, wins, losses, neutral,
-                   accuracy, status, created_at, payload_json
-            FROM backtest_runs
-        """
-        params: List[Any] = []
-        clauses: List[str] = []
-        if strategy_name:
-            clauses.append("strategy_name = ?")
-            params.append(strategy_name)
-        if symbol:
-            clauses.append("symbol = ?")
-            params.append(symbol)
-        if clauses:
-            sql += " WHERE " + " AND ".join(clauses)
-        sql += " ORDER BY id DESC"
-        if limit is not None:
-            sql += " LIMIT ?"
-            params.append(int(limit))
-
-        with self._lock, self._connect() as conn:
-            rows = conn.execute(sql, params).fetchall()
-
-        items: List[Dict[str, Any]] = []
-        for row in rows:
-            payload = json.loads(row["payload_json"]) if row["payload_json"] else {}
-            payload.update(
-                {
-                    "id": int(row["id"]),
-                    "strategy_name": row["strategy_name"],
-                    "symbol": row["symbol"],
-                    "total_samples": int(row["total_samples"]),
-                    "traded_signals": int(row["traded_signals"]),
-                    "wins": int(row["wins"]),
-                    "losses": int(row["losses"]),
-                    "neutral": int(row["neutral"]),
-                    "accuracy": row["accuracy"],
-                    "status": row["status"],
-                    "created_at": row["created_at"],
-                }
-            )
-            items.append(payload)
-        return items
-
     def clear_ml_history(self) -> Dict[str, int]:
         with self._lock, self._connect() as conn:
-            backtest_deleted = conn.execute("DELETE FROM backtest_runs").rowcount or 0
             model_deleted = conn.execute("DELETE FROM model_runs").rowcount or 0
             conn.commit()
         return {
-            "backtest_runs_deleted": int(backtest_deleted),
             "model_runs_deleted": int(model_deleted),
         }

@@ -19,7 +19,7 @@ DEFAULT_CHECKPOINT = Path("checkpoints") / "eurusd_resume.json"
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Offline EUR/USD trainer for the ML Pattern Engine."
+        description="Offline Walk-Forward Trainer for the ML Pattern Engine."
     )
     parser.add_argument(
         "--csv",
@@ -56,12 +56,6 @@ def parse_args() -> argparse.Namespace:
         help="Keep every Nth candle. Use >1 to downsample very large files.",
     )
     parser.add_argument(
-        "--train-ratio",
-        type=float,
-        default=0.7,
-        help="Backtest train/test split ratio.",
-    )
-    parser.add_argument(
         "--summary-json",
         default=str(DEFAULT_SUMMARY),
         help="Optional path to write a JSON summary report.",
@@ -80,7 +74,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--chunk-size",
         type=int,
-        default=200000,
+        default=10000,
         help="Number of raw CSV rows to read per chunk when streaming.",
     )
     parser.add_argument(
@@ -94,9 +88,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--epochs", type=int, default=12, help="Training epochs per fit call.")
     parser.add_argument("--batch-size", type=int, default=128, help="Batch size for training.")
     parser.add_argument("--l2-penalty", type=float, default=1e-4, help="Weight decay / L2 penalty.")
-    parser.add_argument("--walk-train-window", type=int, default=100000, help="Training window size for walk-forward evaluation.")
-    parser.add_argument("--walk-test-window", type=int, default=20000, help="Test window size for walk-forward evaluation.")
-    parser.add_argument("--walk-step", type=int, default=20000, help="Step between walk-forward folds.")
     return parser.parse_args()
 
 
@@ -196,7 +187,7 @@ def save_checkpoint(checkpoint_path: Path, payload: Dict[str, Any]) -> None:
     checkpoint_path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
 
 
-def train_chunked(
+def walk_forward_training(
     strategy: HybridMLStrategy,
     csv_path: Path,
     chunk_size: int,
@@ -224,7 +215,7 @@ def train_chunked(
         strategy.model.reset()
         strategy.patterns = []
 
-    print("[phase 1/2] Streaming training across the full CSV in chunks...")
+    print("[training] Streaming walk-forward training across the full CSV in chunks...")
     
     total_chunks = (total_rows_hint // chunk_size) + 1 if total_rows_hint else None
     pbar = tqdm(total=total_chunks, desc="Training", initial=resume_from_chunk)
@@ -245,10 +236,11 @@ def train_chunked(
         if not strategy.model.fitted:
             last_result = strategy.train(chunk)
         else:
+            # Model is fitted, so calling fit again will naturally walk-forward and tune on the new data
             last_result = strategy.model.fit(X_seq, y)
             strategy.patterns = strategy._discover_patterns_across_regimes(X_seq, y)
             strategy.last_metrics = last_result.get("metrics", {})
-            strategy.last_status = f"Chunk-trained on {len(X_seq)} samples | patterns={len(strategy.patterns)}"
+            strategy.last_status = f"Trained on {len(X_seq)} samples | patterns={len(strategy.patterns)}"
             last_result = {
                 "status": strategy.last_status,
                 "samples": int(X_seq.shape[0]),
@@ -259,6 +251,9 @@ def train_chunked(
         total_samples += int(last_result.get("samples", 0))
         pbar.set_postfix({"samples": total_samples, "acc": last_result.get("metrics", {}).get("accuracy", 0)})
         pbar.update(1)
+
+        # Save model weights to disk alongside the checkpoint
+        strategy.model.save(str(strategy.model_path))
 
         save_checkpoint(
             checkpoint_path,
@@ -279,179 +274,12 @@ def train_chunked(
         return {"status": "no_chunks", "samples": 0}
 
     return {
-        "status": last_result.get("status", "chunked_complete"),
+        "status": last_result.get("status", "walk_forward_training_complete"),
         "samples": total_samples,
         "metrics": last_result.get("metrics", {}),
         "patterns": last_result.get("patterns", []),
         "chunk_count": chunk_count,
         "elapsed_seconds": round(time.time() - started_at, 2),
-    }
-
-
-def walk_forward_backtest(
-    candles: List[Dict[str, Any]],
-    base_config: Dict[str, Any],
-    train_window: int,
-    test_window: int,
-    step: int,
-) -> Dict[str, Any]:
-    if len(candles) < train_window + test_window:
-        return {
-            "status": "insufficient_data_for_walk_forward",
-            "folds": 0,
-            "total_samples": len(candles),
-            "traded_signals": 0,
-            "wins": 0,
-            "losses": 0,
-            "neutral": 0,
-            "accuracy": None,
-            "trade_accuracy": None,
-            "coverage": 0.0,
-        }
-
-    fold_results: List[Dict[str, Any]] = []
-    wins = losses = neutral = traded = 0
-    model_hits = 0
-    model_total = 0
-    fold_idx = 0
-    started_at = time.time()
-
-    start = 0
-    while start + train_window + test_window <= len(candles):
-        fold_idx += 1
-        train_slice = candles[start : start + train_window]
-        test_slice = candles[start + train_window : start + train_window + test_window]
-
-        fold_strategy = HybridMLStrategy(base_config)
-        fold_strategy.train(train_slice)
-        fold_backtest = fold_strategy.backtest(train_slice + test_slice, train_ratio=train_window / (train_window + test_window))
-
-        wins += int(fold_backtest.get("wins", 0))
-        losses += int(fold_backtest.get("losses", 0))
-        neutral += int(fold_backtest.get("neutral", 0))
-        traded += int(fold_backtest.get("traded_signals", 0))
-        if fold_backtest.get("accuracy") is not None:
-            model_total += int(fold_backtest.get("total_samples", 0))
-            model_hits += int(round(float(fold_backtest["accuracy"]) * int(fold_backtest.get("total_samples", 0))))
-
-        fold_results.append(
-            {
-                "fold": fold_idx,
-                "train_samples": len(train_slice),
-                "test_samples": len(test_slice),
-                "backtest": fold_backtest,
-            }
-        )
-        print(
-            f"[walk-forward fold {fold_idx}] signals={fold_backtest.get('traded_signals', 0)} "
-            f"| trade_acc={fold_backtest.get('trade_accuracy')} | coverage={fold_backtest.get('coverage')}"
-        )
-        elapsed = max(1e-6, time.time() - started_at)
-        folds_left = max(0, (len(candles) - (fold_idx * (train_window + test_window))) // max(1, step))
-        eta_seconds = int((elapsed / fold_idx) * folds_left) if fold_idx else 0
-        print(
-            f"[walk-forward] elapsed={int(elapsed)}s | eta={eta_seconds // 3600:02d}:{(eta_seconds % 3600) // 60:02d}:{eta_seconds % 60:02d}"
-        )
-
-        start += max(step, test_window)
-
-    accuracy = round(model_hits / model_total, 4) if model_total else None
-    trade_accuracy = round(wins / traded, 4) if traded else None
-    coverage = round(traded / model_total, 4) if model_total else 0.0
-    return {
-        "status": "walk_forward_complete",
-        "folds": len(fold_results),
-        "total_samples": len(candles),
-        "traded_signals": traded,
-        "wins": wins,
-        "losses": losses,
-        "neutral": neutral,
-        "accuracy": accuracy,
-        "trade_accuracy": trade_accuracy,
-        "coverage": coverage,
-        "fold_results": fold_results,
-        "elapsed_seconds": round(time.time() - started_at, 2),
-    }
-
-
-def walk_forward_backtest_stream(
-    csv_path: Path,
-    base_config: Dict[str, Any],
-    train_window: int,
-    test_window: int,
-    step: int,
-    stride: int,
-) -> Dict[str, Any]:
-    window_size = train_window + test_window
-    buffer: List[Dict[str, Any]] = []
-    fold_results: List[Dict[str, Any]] = []
-    wins = losses = neutral = traded = 0
-    model_hits = 0
-    model_total = 0
-    fold_idx = 0
-    consumed = 0
-    carry = 0
-
-    print("[phase 2/2] Streaming walk-forward backtest across the full CSV...")
-
-    for candle in iter_candles(csv_path, stride=stride):
-        buffer.append(candle)
-        consumed += 1
-        if len(buffer) < window_size:
-            continue
-
-        carry += 1
-        if carry < max(1, step):
-            continue
-
-        fold_idx += 1
-        fold_slice = buffer[-window_size:]
-        train_slice = fold_slice[:train_window]
-        test_slice = fold_slice[train_window:]
-
-        fold_strategy = HybridMLStrategy(base_config)
-        fold_strategy.train(train_slice)
-        fold_backtest = fold_strategy.backtest(train_slice + test_slice, train_ratio=train_window / window_size)
-
-        wins += int(fold_backtest.get("wins", 0))
-        losses += int(fold_backtest.get("losses", 0))
-        neutral += int(fold_backtest.get("neutral", 0))
-        traded += int(fold_backtest.get("traded_signals", 0))
-        if fold_backtest.get("accuracy") is not None:
-            model_total += int(fold_backtest.get("total_samples", 0))
-            model_hits += int(round(float(fold_backtest["accuracy"]) * int(fold_backtest.get("total_samples", 0))))
-
-        fold_results.append(
-            {
-                "fold": fold_idx,
-                "train_samples": len(train_slice),
-                "test_samples": len(test_slice),
-                "backtest": fold_backtest,
-            }
-        )
-        print(
-            f"[walk-forward fold {fold_idx}] signals={fold_backtest.get('traded_signals', 0)} "
-            f"| trade_acc={fold_backtest.get('trade_accuracy')} | coverage={fold_backtest.get('coverage')}"
-        )
-
-        buffer = buffer[max(0, len(buffer) - test_window):]
-        carry = 0
-
-    accuracy = round(model_hits / model_total, 4) if model_total else None
-    trade_accuracy = round(wins / traded, 4) if traded else None
-    coverage = round(traded / model_total, 4) if model_total else 0.0
-    return {
-        "status": "walk_forward_complete",
-        "folds": len(fold_results),
-        "total_samples": consumed,
-        "traded_signals": traded,
-        "wins": wins,
-        "losses": losses,
-        "neutral": neutral,
-        "accuracy": accuracy,
-        "trade_accuracy": trade_accuracy,
-        "coverage": coverage,
-        "fold_results": fold_results,
     }
 
 
@@ -495,15 +323,14 @@ def main() -> int:
         print("[train] Training model...")
         train_result = strategy.train(candles)
         loaded_count = len(candles)
-        backtest_source = candles
         checkpoint_path = Path(args.checkpoint_file).expanduser().resolve()
     else:
         print(f"[load] Streaming candles from: {csv_path}")
-        print(f"[train] Chunked training enabled | chunk_size={args.chunk_size:,} | stride={args.stride}")
+        print(f"[train] Walk-forward training enabled | chunk_size={args.chunk_size:,} | stride={args.stride}")
         estimated_rows = estimate_row_count(csv_path, stride=args.stride)
         print(f"[progress] Estimated usable rows: {estimated_rows:,}")
         checkpoint_path = Path(args.checkpoint_file).expanduser().resolve()
-        train_result = train_chunked(
+        train_result = walk_forward_training(
             strategy,
             csv_path,
             chunk_size=args.chunk_size,
@@ -513,39 +340,13 @@ def main() -> int:
             total_rows_hint=estimated_rows,
         )
         loaded_count = int(train_result.get("samples", 0))
-        backtest_source = None
 
     print(json.dumps(train_result, indent=2, default=str))
-
-    print("[backtest] Running walk-forward backtest...")
-    if backtest_source is not None:
-        wf_train_window = min(args.walk_train_window, max(1, len(backtest_source) - args.walk_test_window))
-        wf_test_window = min(args.walk_test_window, max(1, len(backtest_source) // 10))
-        backtest_result = walk_forward_backtest(
-            candles=backtest_source,
-            base_config=config,
-            train_window=wf_train_window,
-            test_window=wf_test_window,
-            step=args.walk_step,
-        )
-    else:
-        wf_train_window = max(args.walk_train_window, args.window_size + 1)
-        wf_test_window = max(args.walk_test_window, args.window_size + 1)
-        backtest_result = walk_forward_backtest_stream(
-            csv_path=csv_path,
-            base_config=config,
-            train_window=wf_train_window,
-            test_window=wf_test_window,
-            step=max(1, args.walk_step),
-            stride=args.stride,
-        )
-    print(json.dumps(backtest_result, indent=2, default=str))
 
     summary = {
         "csv": str(csv_path),
         "loaded_candles": loaded_count,
         "train_result": train_result,
-        "backtest_result": backtest_result,
         "model_path": args.model_path,
     }
 
@@ -557,8 +358,11 @@ def main() -> int:
 
     if checkpoint_path.exists():
         print(f"[resume] Checkpoint saved at: {checkpoint_path}")
+    
+    # Save the final model weights
+    strategy.model.save(args.model_path)
     print(f"[save] Model checkpoint saved to: {args.model_path}")
-    print(f"[done] Total elapsed: {backtest_result.get('elapsed_seconds', 0)} seconds")
+    print(f"[done] Total elapsed: {train_result.get('elapsed_seconds', 0)} seconds")
     return 0
 
 

@@ -192,8 +192,6 @@ async def websocket_client_endpoint(websocket: WebSocket):
                 elif action == "train_ml":
                     await bot.train_ml_now()
 
-                elif action == "run_backtest":
-                    await bot.run_backtest_now()
 
                 elif action == "reset_ml_model":
                     remove_checkpoint = bool(payload.get("remove_checkpoint", True))

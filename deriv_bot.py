@@ -84,8 +84,6 @@ class DerivBot:
         self.placing_trade: bool = False                    # Safety flag to prevent overlapping orders
         self.trade_history: List[Dict[str, Any]] = []       # List of completed contracts
         self.last_ml_training: Dict[str, Any] = {}
-        self.last_backtest: Dict[str, Any] = {}
-        self.backtest_runs: List[Dict[str, Any]] = []
 
         # Statistics
         self.total_profit_loss: float = 0.0
@@ -114,7 +112,8 @@ class DerivBot:
         )
 
         self._load_cached_symbol_history(self.settings["symbol"])
-        self.backtest_runs = self.storage.fetch_backtest_runs(limit=10)
+        from strategies import TechnicalIndicatorStrategy
+        self.tech_engine = TechnicalIndicatorStrategy(self.settings)
 
         # Dashboard callback for pushing state changes
         self.on_state_change: Optional[Callable[[Dict[str, Any]], Coroutine[Any, Any, None]]] = None
@@ -148,6 +147,18 @@ class DerivBot:
         if self.peak_balance > 0.0:
             drawdown_pct = round((self.max_drawdown / self.peak_balance) * 100, 2)
 
+        tech_inds = self.tech_engine.get_indicators() if hasattr(self, 'tech_engine') else {}
+        strat_inds = {}
+        try:
+            if isinstance(self.strategy, HybridMLStrategy):
+                strat_inds = self.strategy.get_indicators(self.history_closes)
+            elif hasattr(self.strategy, 'get_indicators'):
+                strat_inds = self.strategy.get_indicators()
+        except Exception as e:
+            self.log(f"[WARNING] Strategy get_indicators failed: {e}")
+            
+        merged_indicators = {**tech_inds, **strat_inds}
+
         return {
             "is_running": self.is_running,
             "is_connected": self.is_connected,
@@ -161,10 +172,8 @@ class DerivBot:
             "tick_epochs": self.tick_epochs[-120:],
             "candles": self.candles[-60:],  # Send the last 60 actual OHLC candles for precise financial charts
             "history_closes": self.history_closes[-500:],  # ML history tail for diagnostics
-            "strategy_indicators": self.strategy.get_indicators() if hasattr(self.strategy, 'get_indicators') else {},
+            "strategy_indicators": merged_indicators,
             "ml_training": self.last_ml_training,
-            "ml_backtest": self.last_backtest,
-            "backtest_runs": self.backtest_runs,
             "ml_lifecycle": {
                 "loaded": bool(isinstance(self.strategy, HybridMLStrategy) and self.strategy.model.fitted),
                 "training": bool(isinstance(self.strategy, HybridMLStrategy) and self.strategy.training_task and not self.strategy.training_task.done()),
@@ -439,11 +448,7 @@ class DerivBot:
             self.history_closes = list(self.ticks)
             self.history_epochs = list(self.tick_epochs)
 
-    def _refresh_backtest_cache(self):
-        try:
-            self.backtest_runs = self.storage.fetch_backtest_runs(limit=10)
-        except Exception as storage_err:
-            self.log(f"[WARNING] Failed to refresh backtest cache: {storage_err}")
+
 
     def _ml_training_candles(self) -> List[Dict[str, Any]]:
         """Returns the strongest available candle history for ML training."""
@@ -533,38 +538,13 @@ class DerivBot:
         self.trigger_ui_update()
         return result
 
-    async def run_ml_backtest(self) -> Dict[str, Any]:
-        """Evaluate the ML strategy on stored candle history and persist the summary."""
-        if not isinstance(self.strategy, HybridMLStrategy):
-            result = {"status": "ml_disabled"}
-            self.last_backtest = result
-            return result
 
-        candles = self._ml_training_candles()
-        result = self.strategy.backtest(candles)
-        result = dict(result)
-        result["symbol"] = self.settings["symbol"]
-        self.last_backtest = result
-
-        try:
-            self.storage.save_backtest_run(self.strategy.name, self.settings["symbol"], result)
-            self._refresh_backtest_cache()
-        except Exception as store_err:
-            self.log(f"[WARNING] Failed to persist backtest: {store_err}")
-
-        self.log(f"[BACKTEST] {result.get('status')} | signals={result.get('traded_signals')} | accuracy={result.get('accuracy')}")
-        self.trigger_ui_update()
-        return result
 
     async def train_ml_now(self) -> Dict[str, Any]:
         """Public entry point for manual ML training."""
         if "eurusd_sequence_model" in str(self.settings.get("ml_model_path", "")):
             return {"status": "locked", "message": "Manual training is disabled for the pre-trained EUR/USD sequence model."}
         return await self._train_ml_strategy(reason="manual")
-
-    async def run_backtest_now(self) -> Dict[str, Any]:
-        """Public entry point for manual ML backtesting."""
-        return await self.run_ml_backtest()
 
     async def reset_ml_model(self, remove_checkpoint: bool = True) -> Dict[str, Any]:
         """Public entry point to reset the ML model and optionally remove the checkpoint."""
@@ -580,23 +560,19 @@ class DerivBot:
         return result
 
     async def reset_ml_registry(self, remove_checkpoint: bool = True) -> Dict[str, Any]:
-        """Clear ML backtest/model history and reset the current ML checkpoint."""
+        """Clear ML model history and reset the current ML checkpoint."""
         if "eurusd_sequence_model" in str(self.settings.get("ml_model_path", "")):
-            # Clear ML backtest/model history but DO NOT reset the model checkpoint!
+            # Clear ML model history but DO NOT reset the model checkpoint!
             cleared = await asyncio.to_thread(self.storage.clear_ml_history)
-            self.backtest_runs = []
             reset_result = {"status": "registry_cleared_but_model_preserved", "message": "Registry cleared; pre-trained EUR/USD model preserved.", **cleared}
             self.last_ml_training = reset_result
-            self.last_backtest = {}
-            self.log("[ML] Registry cleared | backtests_deleted=%s | model_runs_deleted=%s | model_checkpoint_preserved=True" % (
-                cleared.get("backtest_runs_deleted", 0),
+            self.log("[ML] Registry cleared | model_runs_deleted=%s | model_checkpoint_preserved=True" % (
                 cleared.get("model_runs_deleted", 0)
             ))
             self.trigger_ui_update()
             return reset_result
 
         cleared = await asyncio.to_thread(self.storage.clear_ml_history)
-        self.backtest_runs = []
 
         reset_result: Dict[str, Any] = {"status": "registry_cleared", **cleared}
         if isinstance(self.strategy, HybridMLStrategy):
@@ -604,11 +580,9 @@ class DerivBot:
             reset_result.update(model_reset)
 
         self.last_ml_training = reset_result
-        self.last_backtest = {}
         self.log(
-            "[ML] Registry cleared | backtests_deleted=%s | model_runs_deleted=%s | checkpoint_removed=%s"
+            "[ML] Registry cleared | model_runs_deleted=%s | checkpoint_removed=%s"
             % (
-                reset_result.get("backtest_runs_deleted", 0),
                 reset_result.get("model_runs_deleted", 0),
                 reset_result.get("checkpoint_removed", remove_checkpoint),
             )
@@ -754,7 +728,7 @@ class DerivBot:
                                 
                                 # 2. Append the new active/open candle
                                 self.candles.append(candle_data)
-                                if len(self.candles) > 150:
+                                if len(self.candles) > 5000:
                                     self.candles.pop(0)
                                     
                                 # 3. Trigger 15-minute strategy check precisely on this candle-close transition!
@@ -816,6 +790,26 @@ class DerivBot:
 
         if isinstance(self.strategy, HybridMLStrategy):
             self._schedule_ml_training()
+
+        # Always run tech_engine purely for dashboard rendering
+        if self.candles and len(self.candles) >= 15 * 30:
+            tf = 15
+            multiplier = tf
+            chunks = []
+            for i in range(len(self.candles), 0, -multiplier):
+                start = max(0, i - multiplier)
+                group = self.candles[start:i]
+                if not group: continue
+                chunks.append({
+                    "open": group[0]["open"],
+                    "high": max(c["high"] for c in group),
+                    "low": min(c["low"] for c in group),
+                    "close": group[-1]["close"],
+                    "epoch": group[0]["epoch"]
+                })
+            resampled = list(reversed(chunks))
+            if hasattr(self, 'tech_engine'):
+                self.tech_engine.analyze(resampled, tf)
 
         # Analyze candle closes across requested custom timeframes
         timeframes = [55, 50, 45, 40, 30, 25, 20, 15]
